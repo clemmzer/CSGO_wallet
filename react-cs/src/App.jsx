@@ -1,181 +1,417 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
+  AreaChart, Area, LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine, Cell,
 } from "recharts";
 
-const SKINS_API = "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json";
-const PROXY = import.meta.env.VITE_STEAM_PROXY_URL || "http://localhost:3001";
-const STEAM_PROXY = (name) => `${PROXY}/steam-price?name=${encodeURIComponent(name)}`;
-const HISTORY_URL = (name) => name ? `${PROXY}/price-history?name=${encodeURIComponent(name)}` : `${PROXY}/price-history`;
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const SKINS_API  = "https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json";
+const PROXY      = import.meta.env.VITE_STEAM_PROXY_URL || "http://localhost:3001";
+const STEAM_URL  = (n) => `${PROXY}/steam-price?name=${encodeURIComponent(n)}`;
+const HIST_URL   = (n) => n ? `${PROXY}/price-history?name=${encodeURIComponent(n)}` : `${PROXY}/price-history`;
 const RECORD_URL = `${PROXY}/record-prices`;
-const AUTO_REFRESH_MS = 0.5 * 60 * 1000;
+const AUTO_MS    = 30 * 60 * 1000;
 
-const WEAR_LABELS = {
-  "Factory New": "FN", "Minimal Wear": "MW", "Field-Tested": "FT",
-  "Well-Worn": "WW", "Battle-Scarred": "BS",
-};
-const WEAR_ORDER = ["Factory New", "Minimal Wear", "Field-Tested", "Well-Worn", "Battle-Scarred"];
-const SKIN_COLORS = ["#3fb950","#58a6ff","#f0883e","#a371f7","#f85149","#d29922","#38bdf8","#e879f9","#fb923c","#34d399"];
+const WEAR_MAP   = { "Factory New":"FN","Minimal Wear":"MW","Field-Tested":"FT","Well-Worn":"WW","Battle-Scarred":"BS" };
+const WEAR_ORDER = ["Factory New","Minimal Wear","Field-Tested","Well-Worn","Battle-Scarred"];
+const COLORS     = ["#00ff87","#3b82f6","#f59e0b","#ef4444","#8b5cf6","#06b6d4","#ec4899","#10b981","#f97316","#a78bfa"];
 
-const TIME_RANGES = [
-  { key: "1h",  label: "1H",  ms: 60*60*1000 },
-  { key: "24h", label: "24H", ms: 24*60*60*1000 },
-  { key: "7d",  label: "7J",  ms: 7*24*60*60*1000 },
-  { key: "30d", label: "30J", ms: 30*24*60*60*1000 },
-  { key: "all", label: "Tout", ms: Infinity },
+const RANGES = [
+  { key:"1h",  label:"1H",  ms:3600000 },
+  { key:"24h", label:"24H", ms:86400000 },
+  { key:"7d",  label:"7J",  ms:604800000 },
+  { key:"30d", label:"30J", ms:2592000000 },
+  { key:"all", label:"MAX", ms:Infinity },
 ];
-
-const POPULAR_WEAPONS = ["AK-47", "AWP", "M4A4", "Desert Eagle", "Glock-18", "M4A1-S", "USP-S", "Knife"];
-
-const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:#07090f}
-.d{background:#07090f;min-height:100vh;padding:22px;font-family:'Rajdhani',sans-serif;color:#c9d1d9}
-.hdr{display:flex;align-items:center;gap:10px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid #161b22}
-.pulse{width:8px;height:8px;border-radius:50%;background:#3fb950;animation:p 2.5s infinite;flex-shrink:0}
-@keyframes p{0%,100%{opacity:1}50%{opacity:.2}}
-.htitle{font-family:'Share Tech Mono',monospace;font-size:13px;letter-spacing:.12em;color:#e6edf3}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:16px}
-.kpi{background:#0d1117;border:1px solid #161b22;border-radius:10px;padding:14px 16px}
-.klbl{font-family:'Share Tech Mono',monospace;font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
-.kval{font-family:'Share Tech Mono',monospace;font-size:20px;font-weight:500}
-.ksub{font-size:11px;color:#484f58;margin-top:3px}
-.card{background:#0d1117;border:1px solid #161b22;border-radius:10px;padding:16px;margin-bottom:14px}
-.card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
-.card-title{font-size:13px;font-weight:500;color:#e6edf3}
-.sec-lbl{font-family:'Share Tech Mono',monospace;font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
-.tabs{display:flex;gap:5px}
-.tab{font-family:'Share Tech Mono',monospace;font-size:10px;padding:4px 12px;border-radius:5px;border:1px solid #21262d;background:transparent;color:#484f58;cursor:pointer;letter-spacing:.04em;transition:all .15s}
-.tab.on{background:#161b22;color:#c9d1d9;border-color:#30363d}
-.tab:hover:not(.on){color:#8b949e}
-.time-tabs{display:flex;gap:3px;background:#07090f;border:1px solid #161b22;border-radius:6px;padding:2px}
-.time-tab{font-family:'Share Tech Mono',monospace;font-size:9px;padding:3px 8px;border-radius:4px;border:none;background:transparent;color:#484f58;cursor:pointer;letter-spacing:.04em;transition:all .15s}
-.time-tab.on{background:#161b22;color:#c9d1d9}
-.legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
-.leg{display:flex;align-items:center;gap:5px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#6e7681;cursor:pointer;transition:opacity .15s;user-select:none}
-.leg.dim{opacity:.3}
-.legdot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
-.bot{display:grid;grid-template-columns:1fr 1.5fr;gap:12px}
-.pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-.pill{font-family:'Share Tech Mono',monospace;font-size:10px;padding:3px 11px;border-radius:20px;border:1px solid #21262d;background:transparent;color:#484f58;cursor:pointer;transition:all .15s}
-.pill.on{background:#3fb950;color:#04260a;border-color:#3fb950}
-.pill:hover:not(.on){color:#8b949e;border-color:#30363d}
-.slist{max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#21262d transparent}
-.srow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #111827;cursor:pointer;transition:opacity .15s}
-.srow:last-child{border-bottom:none}
-.srow:hover{opacity:.7}
-.srow.dim{opacity:.25}
-.sname{font-size:13px;font-weight:500;color:#e6edf3}
-.sweap{font-family:'Share Tech Mono',monospace;font-size:10px;color:#484f58;margin-top:2px}
-.sprice{font-family:'Share Tech Mono',monospace;font-size:13px;text-align:right}
-.sdelta{font-family:'Share Tech Mono',monospace;font-size:10px;text-align:right;margin-top:2px}
-.statgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
-.statbox{background:#07090f;border-radius:8px;padding:12px 14px}
-.stlbl{font-family:'Share Tech Mono',monospace;font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
-.stval{font-family:'Share Tech Mono',monospace;font-size:17px;color:#e6edf3}
-.stfoot{font-size:11px;color:#30363d;margin-top:3px}
-.add-panel{background:#0d1117;border:1px solid #161b22;border-radius:10px;padding:16px;margin-bottom:14px}
-.add-panel-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer}
-.chevron{font-size:10px;color:#484f58;font-family:'Share Tech Mono',monospace;transition:transform .2s;user-select:none}
-.chevron.open{transform:rotate(180deg)}
-.steps{display:flex;gap:0;margin-bottom:18px;border:1px solid #161b22;border-radius:8px;overflow:hidden}
-.step{flex:1;padding:8px 12px;text-align:center;font-family:'Share Tech Mono',monospace;font-size:10px;color:#484f58;background:#07090f;border-right:1px solid #161b22;letter-spacing:.06em;transition:all .15s}
-.step:last-child{border-right:none}
-.step.done{color:#3fb950}
-.step.active{background:#0d1117;color:#e6edf3}
-.step-num{display:block;font-size:16px;font-weight:600;margin-bottom:2px}
-.inp{background:#07090f;border:1px solid #21262d;border-radius:6px;padding:9px 12px;color:#e6edf3;font-family:'Share Tech Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;width:100%}
-.inp:focus{border-color:#3fb950;box-shadow:0 0 0 2px rgba(63,185,80,.1)}
-.inp::placeholder{color:#30363d}
-
-/* COMBOBOX ARME */
-.combo-wrap{position:relative;margin-bottom:4px}
-.combo-input{background:#07090f;border:1px solid #21262d;border-radius:6px;padding:9px 32px 9px 12px;color:#e6edf3;font-family:'Share Tech Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;width:100%;cursor:pointer;text-align:left}
-.combo-input:focus,.combo-input.open{border-color:#3fb950;box-shadow:0 0 0 2px rgba(63,185,80,.1)}
-.combo-arrow{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#484f58;font-size:10px;transition:transform .2s}
-.combo-arrow.open{transform:translateY(-50%) rotate(180deg)}
-.combo-dd{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#0d1117;border:1px solid #21262d;border-radius:8px;z-index:50;overflow:hidden;max-height:260px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#21262d transparent}
-.combo-sep{padding:5px 12px 3px;font-family:'Share Tech Mono',monospace;font-size:9px;color:#30363d;text-transform:uppercase;letter-spacing:.1em;background:#07090f;position:sticky;top:0}
-.combo-opt{padding:9px 12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:#c9d1d9;cursor:pointer;border-left:2px solid transparent;transition:all .1s}
-.combo-opt:hover,.combo-opt.hl{background:#161b22;border-left-color:#3fb950;color:#e6edf3}
-.combo-opt mark{background:none;color:#3fb950;font-style:normal}
-.combo-empty{padding:10px 12px;font-family:'Share Tech Mono',monospace;font-size:11px;color:#484f58}
-
-.skin-scroll{max-height:240px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#21262d transparent;margin-bottom:12px}
-.skin-opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;transition:all .15s;border:1px solid transparent}
-.skin-opt:hover{background:#111827;border-color:#161b22}
-.skin-img{width:52px;height:38px;object-fit:contain;flex-shrink:0;border-radius:4px}
-.wear-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px}
-.wear-btn{padding:8px 4px;border-radius:6px;border:1px solid #21262d;background:#07090f;color:#484f58;font-family:'Share Tech Mono',monospace;font-size:10px;cursor:pointer;text-align:center;transition:all .15s}
-.wear-btn:hover:not(.unavail){border-color:#30363d;color:#9ca3af}
-.wear-btn.sel{border-color:#3fb950;background:rgba(63,185,80,.07);color:#3fb950}
-.wear-btn.unavail{opacity:.25;cursor:not-allowed}
-.price-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.price-box{background:#07090f;border:1px solid #161b22;border-radius:8px;padding:12px}
-.price-box-lbl{font-family:'Share Tech Mono',monospace;font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
-.price-box-val{font-family:'Share Tech Mono',monospace;font-size:20px;font-weight:500;margin-top:6px}
-.price-box-sub{font-size:10px;color:#30363d;margin-top:4px;word-break:break-all}
-.cmp-bar{background:#07090f;border:1px solid #161b22;border-radius:8px;padding:12px;margin-bottom:12px}
-.cmp-track{height:6px;background:#161b22;border-radius:3px;overflow:hidden;margin:10px 0 6px}
-.cmp-fill{height:100%;border-radius:3px;transition:width .5s ease}
-.cmp-labels{display:flex;justify-content:space-between;font-family:'Share Tech Mono',monospace;font-size:10px}
-.spin{width:14px;height:14px;border:2px solid #21262d;border-top-color:#3fb950;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
-@keyframes spin{to{transform:rotate(360deg)}}
-.btn-add{font-family:'Share Tech Mono',monospace;font-size:12px;padding:10px;border-radius:7px;border:none;background:#3fb950;color:#04260a;cursor:pointer;font-weight:600;width:100%;letter-spacing:.06em;transition:opacity .15s,transform .1s}
-.btn-add:hover:not(:disabled){opacity:.88}
-.btn-add:active:not(:disabled){transform:scale(.98)}
-.btn-add:disabled{opacity:.35;cursor:not-allowed}
-.btn-del{font-family:'Share Tech Mono',monospace;font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #21262d;background:transparent;color:#484f58;cursor:pointer;transition:all .15s;flex-shrink:0}
-.btn-del:hover{border-color:#f85149;color:#f85149}
-.btn-link{background:none;border:none;color:#484f58;cursor:pointer;font-family:'Share Tech Mono',monospace;font-size:10px;text-decoration:underline;padding:0}
-.btn-link:hover{color:#9ca3af}
-.muted{font-family:'Share Tech Mono',monospace;font-size:10px;color:#484f58}
-.err{font-family:'Share Tech Mono',monospace;font-size:10px;color:#f85149;margin-top:6px}
-.refresh-btn{font-family:'Share Tech Mono',monospace;font-size:10px;padding:4px 12px;border-radius:5px;border:1px solid #21262d;background:transparent;color:#484f58;cursor:pointer;transition:all .15s}
-.refresh-btn:hover{border-color:#3fb950;color:#3fb950}
-.price-current{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
-.price-big{font-family:'Share Tech Mono',monospace;font-size:28px;font-weight:500;color:#e6edf3}
-.price-change{font-family:'Share Tech Mono',monospace;font-size:13px}
-.chart-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;color:#30363d;font-family:'Share Tech Mono',monospace;font-size:11px;text-align:center;gap:8px}
-.auto-badge{display:inline-flex;align-items:center;gap:4px;font-family:'Share Tech Mono',monospace;font-size:9px;color:#3fb950;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:4px;padding:2px 8px}
-`;
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function parseSteamPrice(raw) {
   if (!raw) return null;
-  const cleaned = raw.replace(/\s/g, "").replace(/[^\d.,]/g, "");
-  const normalized = cleaned.includes(",") && cleaned.includes(".")
-    ? cleaned.replace(".", "").replace(",", ".")
-    : cleaned.replace(",", ".");
-  return parseFloat(normalized) || null;
+  const c = raw.replace(/\s/g,"").replace(/[^\d.,]/g,"");
+  const n = c.includes(",") && c.includes(".") ? c.replace(".","").replace(",",".") : c.replace(",",".");
+  return parseFloat(n) || null;
 }
-
-async function fetchSteamPrice(marketName) {
-  const res = await fetch(STEAM_PROXY(marketName));
-  if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  if (!data.success) throw new Error("Skin introuvable.");
-  return parseSteamPrice(data.lowest_price ?? data.median_price);
+async function fetchSteamPrice(name) {
+  const r = await fetch(STEAM_URL(name));
+  if (!r.ok) throw new Error(`Proxy ${r.status}`);
+  const d = await r.json();
+  if (d.error) throw new Error(d.error);
+  if (!d.success) throw new Error("Introuvable.");
+  return parseSteamPrice(d.lowest_price ?? d.median_price);
 }
-
-function formatTime(ts, range) {
+function fmtTime(ts, range) {
   const d = new Date(ts);
-  if (range === "1h" || range === "24h") return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  if (range === "7d") return d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" });
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  if (range==="1h"||range==="24h") return d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  if (range==="7d") return d.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric"});
+  return d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
+}
+function fmt(n, decimals=2) {
+  return n != null ? n.toFixed(decimals) : "—";
+}
+
+// ── CSS ───────────────────────────────────────────────────────────────────────
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #0a0a0a;
+  font-family: 'Inter', -apple-system, sans-serif;
+  color: #f5f5f5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── LAYOUT: topbar + two-col ── */
+.shell {
+  display: grid;
+  grid-template-rows: 52px 1fr;
+  grid-template-columns: 300px 1fr;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid #1a1a1a;
+  background: #0a0a0a;
+  gap: 12px;
+  z-index: 50;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.logo-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.topbar-sep { width: 1px; height: 20px; background: #1e1e1e; margin: 0 4px; }
+.topbar-label { font-size: 12px; color: #666; font-weight: 400; }
+.ms-left { margin-left: auto; }
+.badge-live {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 6px;
+  border: 1px solid #1e1e1e; background: #111;
+  font-size: 11px; font-weight: 500; color: #888;
+}
+.dot-live { width: 6px; height: 6px; border-radius: 50%; background: #00ff87; animation: blink 2s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.btn-top {
+  height: 30px; padding: 0 12px; border-radius: 6px;
+  border: 1px solid #222; background: #111;
+  color: #aaa; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.btn-top:hover { border-color: #333; color: #fff; background: #161616; }
+.btn-top:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 1px solid #1a1a1a;
+  background: #0a0a0a;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #1e1e1e transparent;
+}
+.sidebar-inner { padding: 16px; }
+
+/* ── MAIN ── */
+.main {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #1e1e1e transparent;
+  padding: 20px 24px;
+  background: #0a0a0a;
+}
+
+/* ── SECTION HEADER ── */
+.sec-head {
+  font-size: 11px; font-weight: 600; color: #666;
+  text-transform: uppercase; letter-spacing: .08em;
+  padding-bottom: 12px; margin-bottom: 12px;
+  border-bottom: 1px solid #141414;
+}
+
+/* ── KPI STRIP ── */
+.kpi-strip { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: #1a1a1a; border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
+.kpi-cell { background: #0f0f0f; padding: 16px 18px; }
+.kpi-cell-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 8px; }
+.kpi-cell-val { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 500; color: #fff; line-height: 1; }
+.kpi-cell-sub { font-size: 11px; color: #666; margin-top: 5px; }
+
+/* ── CARD ── */
+.card {
+  background: #0f0f0f;
+  border: 1px solid #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.card-pad { padding: 16px 18px; }
+.card-title { font-size: 11px; font-weight: 600; color: #777; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 14px; }
+
+/* ── CHART HEADER ── */
+.chart-top { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 18px 0; gap: 12px; flex-wrap: wrap; }
+.price-big { font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 500; color: #fff; line-height: 1; }
+.price-chip {
+  display: inline-block; padding: 3px 8px; border-radius: 5px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500;
+}
+.chip-up { color: #00ff87; background: rgba(0,255,135,0.08); }
+.chip-dn { color: #ff4d4d; background: rgba(255,77,77,0.08); }
+.chart-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.tab-row { display: flex; gap: 2px; background: #141414; border-radius: 7px; padding: 2px; }
+.t-btn {
+  padding: 5px 12px; border-radius: 5px; border: none;
+  background: transparent; color: #555;
+  font-size: 12px; font-weight: 500; cursor: pointer; transition: all .12s;
+}
+.t-btn.on { background: #1e1e1e; color: #fff; }
+.t-btn:hover:not(.on) { color: #aaa; }
+.range-row { display: flex; gap: 2px; }
+.r-btn {
+  padding: 4px 9px; border-radius: 5px; border: 1px solid transparent;
+  background: transparent; color: #444;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500;
+  cursor: pointer; transition: all .12s;
+}
+.r-btn.on { border-color: #2a2a2a; color: #00ff87; background: rgba(0,255,135,0.05); }
+.r-btn:hover:not(.on) { color: #888; }
+
+/* ── LEGEND ── */
+.leg-row { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 18px 0; }
+.leg-it { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: #555; cursor: pointer; user-select: none; transition: opacity .12s; }
+.leg-it.dim { opacity: .3; }
+.leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.chart-area { padding: 12px 0 0; }
+
+/* ── CHART EMPTY ── */
+.chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 220px; gap: 8px; color: #333; text-align: center; }
+.chart-empty .e-icon { font-size: 36px; margin-bottom: 4px; }
+.chart-empty p { font-size: 12px; line-height: 1.6; max-width: 280px; }
+
+/* ── BOTTOM GRID ── */
+.bot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+
+/* ── STATS MINI GRID ── */
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #1a1a1a; border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.stat-cell { background: #0f0f0f; padding: 12px 14px; }
+.stat-label { font-size: 10px; font-weight: 600; color: #777; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px; }
+.stat-val { font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 500; color: #fff; }
+
+/* ── PERF LIST ── */
+.perf-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #141414; }
+.perf-item:last-child { border-bottom: none; }
+.perf-rank { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #666; width: 18px; flex-shrink: 0; }
+.perf-name { font-size: 12px; font-weight: 500; color: #ccc; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; }
+
+/* ── SKIN LIST ── */
+.skin-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; transition: background .12s; border: 1px solid transparent; }
+.skin-item:hover { background: #111; border-color: #1e1e1e; }
+.skin-item.dim { opacity: .3; }
+.skin-item-info { flex: 1; min-width: 0; }
+.skin-item-name { font-size: 12px; font-weight: 500; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skin-item-sub { font-size: 10px; color: #666; margin-top: 2px; }
+.skin-item-price { text-align: right; flex-shrink: 0; }
+.skin-price-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #ccc; }
+.skin-price-delta { font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.skin-del { width: 24px; height: 24px; border-radius: 5px; border: 1px solid #1e1e1e; background: transparent; color: #333; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; transition: all .12s; }
+.skin-del:hover { border-color: #ff4d4d; color: #ff4d4d; background: rgba(255,77,77,0.05); }
+
+/* ── FILTER PILLS ── */
+.f-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.f-pill { padding: 3px 10px; border-radius: 5px; border: 1px solid #1e1e1e; background: transparent; color: #555; font-size: 11px; font-weight: 500; cursor: pointer; transition: all .12s; }
+.f-pill.on { border-color: #2a2a2a; color: #00ff87; background: rgba(0,255,135,0.06); }
+.f-pill:hover:not(.on) { color: #888; border-color: #222; }
+
+/* ── ADD FORM ── */
+.steps-bar { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: #1a1a1a; border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+.step-c { background: #0f0f0f; padding: 8px; text-align: center; font-size: 10px; font-weight: 600; color: #333; text-transform: uppercase; letter-spacing: .06em; transition: all .15s; }
+.step-c.done { color: #00ff87; background: rgba(0,255,135,0.04); }
+.step-c.active { color: #fff; background: #141414; }
+.step-n { display: block; font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+
+.f-label { font-size: 10px; font-weight: 600; color: #777; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 5px; }
+.f-inp {
+  width: 100%; background: #111; border: 1px solid #1e1e1e; border-radius: 8px;
+  padding: 8px 11px; color: #f5f5f5; font-family: 'Inter', sans-serif; font-size: 13px;
+  outline: none; transition: border-color .15s;
+}
+.f-inp:focus { border-color: #2a2a2a; }
+.f-inp::placeholder { color: #333; }
+
+/* ── DROPDOWN ── */
+.dd { position: relative; width: 100%; margin-bottom: 14px; }
+.dd-trigger {
+  width: 100%; background: #111; border: 1px solid #1e1e1e; border-radius: 8px;
+  padding: 8px 11px; color: #aaa; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: border-color .15s; text-align: left;
+}
+.dd-trigger.has-val { color: #f5f5f5; }
+.dd-trigger:hover, .dd-trigger.open { border-color: #2a2a2a; }
+.dd-arrow { font-size: 10px; color: #333; transition: transform .2s; flex-shrink: 0; }
+.dd-arrow.open { transform: rotate(180deg); }
+.dd-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: #111; border: 1px solid #222; border-radius: 10px;
+  z-index: 200; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  animation: fadeIn .12s ease;
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+.dd-search { padding: 8px; border-bottom: 1px solid #1a1a1a; }
+.dd-search input {
+  width: 100%; background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 6px;
+  padding: 7px 10px; color: #f5f5f5; font-size: 12px; outline: none;
+  transition: border-color .15s;
+}
+.dd-search input:focus { border-color: #2a2a2a; }
+.dd-search input::placeholder { color: #333; }
+.dd-list { max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #1a1a1a transparent; }
+.dd-opt { padding: 8px 12px; font-size: 12px; font-weight: 500; color: #777; cursor: pointer; transition: all .1s; }
+.dd-opt:hover { background: #161616; color: #f5f5f5; }
+.dd-opt.sel { color: #00ff87; }
+.dd-empty { padding: 14px; text-align: center; font-size: 11px; color: #333; }
+
+/* ── SKIN OPTS ── */
+.skin-opts { max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #1a1a1a transparent; margin-bottom: 12px; border: 1px solid #1a1a1a; border-radius: 8px; overflow-x: hidden; }
+.sk-opt { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; transition: background .1s; border-bottom: 1px solid #141414; }
+.sk-opt:last-child { border-bottom: none; }
+.sk-opt:hover { background: #141414; }
+.sk-opt img { width: 44px; height: 30px; object-fit: contain; flex-shrink: 0; }
+.sk-opt-name { font-size: 12px; font-weight: 500; color: #ccc; }
+.sk-opt-rare { font-size: 10px; margin-top: 1px; }
+
+/* ── WEAR ── */
+.wear-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 4px; margin-bottom: 12px; }
+.w-btn { padding: 8px 2px; border-radius: 6px; border: 1px solid #1a1a1a; background: #0f0f0f; color: #444; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; cursor: pointer; text-align: center; transition: all .12s; }
+.w-btn:hover:not(.na) { border-color: #222; color: #888; }
+.w-btn.sel { border-color: #2a2a2a; background: rgba(0,255,135,0.06); color: #00ff87; }
+.w-btn.na { opacity: .2; cursor: not-allowed; }
+
+/* ── PRICE BOXES ── */
+.p-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.p-box { background: #111; border: 1px solid #1a1a1a; border-radius: 8px; padding: 11px 13px; }
+.p-box-lbl { font-size: 10px; font-weight: 600; color: #777; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 7px; }
+.p-box-val { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 500; }
+
+/* ── COMPARE BAR ── */
+.cmp { background: #111; border: 1px solid #1a1a1a; border-radius: 8px; padding: 11px 13px; margin-bottom: 12px; }
+.cmp-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 11px; }
+.cmp-lbl { color: #444; }
+.cmp-track { height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+.cmp-fill { height: 100%; border-radius: 2px; transition: width .5s; }
+.cmp-labs { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+
+/* ── BTN ADD ── */
+.btn-add {
+  width: 100%; padding: 10px; border-radius: 8px; border: none;
+  background: #00ff87; color: #0a0a0a;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s;
+  letter-spacing: -.01em;
+}
+.btn-add:hover:not(:disabled) { opacity: .9; }
+.btn-add:disabled { opacity: .3; cursor: not-allowed; }
+
+.btn-lnk { background: none; border: none; color: #444; cursor: pointer; font-size: 10px; text-decoration: underline; padding: 0; }
+.btn-lnk:hover { color: #888; }
+.spin { width: 12px; height: 12px; border: 1.5px solid #1a1a1a; border-top-color: #00ff87; border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.err-txt { font-size: 11px; color: #ff4d4d; margin-top: 4px; }
+.muted { font-size: 11px; color: #666; }
+.mb8 { margin-bottom: 8px; }
+.mb12 { margin-bottom: 12px; }
+.mb16 { margin-bottom: 16px; }
+.divider { height: 1px; background: #141414; margin: 14px 0; }
+
+/* ── RECHARTS: kill white backgrounds ── */
+.recharts-wrapper { background: transparent !important; }
+.recharts-surface { overflow: visible; background: transparent !important; }
+.recharts-tooltip-cursor { fill: rgba(255,255,255,0.03) !important; stroke: none !important; }
+.recharts-area-area { fill-opacity: 1; }
+.recharts-cartesian-grid rect { display: none !important; }
+`;
+
+
+// ── DROPDOWN ─────────────────────────────────────────────────────────────────
+function WeaponDropdown({ weapons, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  const inp = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  useEffect(() => { if (open) setTimeout(() => inp.current?.focus(), 60); }, [open]);
+
+  const list = q ? weapons.filter(w => w.name.toLowerCase().includes(q.toLowerCase())) : weapons;
+
+  return (
+    <div className="dd" ref={ref}>
+      <button className={`dd-trigger${value?" has-val":""}${open?" open":""}`}
+        onClick={() => { setOpen(o => !o); setQ(""); }}>
+        <span>{value?.name || "Sélectionner une arme..."}</span>
+        <span className={`dd-arrow${open?" open":""}`}>▾</span>
+      </button>
+      {open && (
+        <div className="dd-menu">
+          <div className="dd-search">
+            <input ref={inp} placeholder="AK-47, AWP, Glock..." value={q} onChange={e => setQ(e.target.value)} onClick={e => e.stopPropagation()} />
+          </div>
+          <div className="dd-list">
+            {list.length === 0 && <div className="dd-empty">Aucun résultat</div>}
+            {list.map(w => (
+              <div key={w.id} className={`dd-opt${value?.id === w.id ? " sel" : ""}`}
+                onClick={() => { onChange(w); setOpen(false); setQ(""); }}>
+                {w.name}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── TOOLTIP ───────────────────────────────────────────────────────────────────
 const Tip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 8, padding: "10px 14px", fontFamily: "'Share Tech Mono',monospace" }}>
-      <p style={{ color: "#6e7681", fontSize: 11, marginBottom: 6 }}>{label}</p>
-      {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color || p.stroke, fontSize: 12, margin: "2px 0" }}>
+    <div style={{ background:"#111",border:"1px solid #222",borderRadius:8,padding:"9px 12px",fontFamily:"'JetBrains Mono',monospace",boxShadow:"0 12px 40px rgba(0,0,0,.8)" }}>
+      <p style={{ color:"#555",fontSize:10,marginBottom:6,fontFamily:"'Inter',sans-serif",fontWeight:500 }}>{label}</p>
+      {payload.map((p,i) => (
+        <p key={i} style={{ color:p.color||p.stroke||"#ccc",fontSize:11,margin:"2px 0" }}>
           {p.name}: {Number(p.value).toFixed(2)} €
         </p>
       ))}
@@ -183,656 +419,525 @@ const Tip = ({ active, payload, label }) => {
   );
 };
 
-const KpiCard = ({ label, value, sub, color = "#c9d1d9" }) => (
-  <div className="kpi">
-    <div className="klbl">{label}</div>
-    <div className="kval" style={{ color }}>{value}</div>
-    {sub && <div className="ksub">{sub}</div>}
-  </div>
-);
+// ── ADD PANEL ─────────────────────────────────────────────────────────────────
+function AddPanel({ onAdd, allSkins, loadingDB, dbError }) {
+  const [selW, setSelW]       = useState(null);
+  const [skinQ, setSkinQ]     = useState("");
+  const [selS, setSelS]       = useState(null);
+  const [selWr, setSelWr]     = useState(null);
+  const [buy, setBuy]         = useState("");
+  const [mktP, setMktP]       = useState(null);
+  const [fetching, setFetching] = useState(false);
+  const [pErr, setPErr]       = useState(null);
+  const [rawN, setRawN]       = useState("");
 
-// ── WEAPON COMBOBOX ───────────────────────────────────────────────────────────
-function WeaponCombobox({ weapons, onSelect }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [displayValue, setDisplayValue] = useState("");
-  const inputRef = useRef(null);
-  const wrapRef = useRef(null);
-
-  const filtered = query.trim()
-    ? weapons.filter(w => w.name.toLowerCase().includes(query.toLowerCase()))
-    : weapons;
-
-  const popular = filtered.filter(w => POPULAR_WEAPONS.includes(w.name));
-  const others = filtered.filter(w => !POPULAR_WEAPONS.includes(w.name));
-
-  function pick(w) {
-    setDisplayValue(w.name);
-    setQuery("");
-    setOpen(false);
-    onSelect(w);
-  }
-
-  function handleInputChange(e) {
-    setQuery(e.target.value);
-    setDisplayValue(e.target.value);
-    setOpen(true);
-  }
-
-  function handleFocus() {
-    setOpen(true);
-    setQuery("");
-  }
-
-  function handleBlur(e) {
-    if (wrapRef.current && wrapRef.current.contains(e.relatedTarget)) return;
-    setOpen(false);
-    setQuery("");
-  }
-
-  function highlight(name) {
-    if (!query.trim()) return name;
-    const i = name.toLowerCase().indexOf(query.toLowerCase());
-    if (i === -1) return name;
-    return (
-      <>
-        {name.slice(0, i)}
-        <mark style={{ background: "none", color: "#3fb950", fontStyle: "normal" }}>
-          {name.slice(i, i + query.length)}
-        </mark>
-        {name.slice(i + query.length)}
-      </>
-    );
-  }
-
-  const renderOpts = (list) => list.map(w => (
-    <div
-      key={w.id}
-      className="combo-opt"
-      onMouseDown={() => pick(w)}
-    >
-      {highlight(w.name)}
-    </div>
-  ));
-
-  return (
-    <div className="combo-wrap" ref={wrapRef} onBlur={handleBlur}>
-      <input
-        ref={inputRef}
-        className={`combo-input${open ? " open" : ""}`}
-        value={open ? (query || displayValue) : displayValue}
-        placeholder="Choisir une arme…"
-        onChange={handleInputChange}
-        onFocus={handleFocus}
-        autoComplete="off"
-      />
-      <span className={`combo-arrow${open ? " open" : ""}`}>▼</span>
-      {open && (
-        <div className="combo-dd">
-          {filtered.length === 0 && (
-            <div className="combo-empty">Aucun résultat pour "{query}"</div>
-          )}
-          {popular.length > 0 && !query.trim() && (
-            <>
-              <div className="combo-sep">Populaires</div>
-              {renderOpts(popular)}
-              {others.length > 0 && <div className="combo-sep">Toutes les armes</div>}
-            </>
-          )}
-          {query.trim() ? renderOpts(filtered) : renderOpts(others)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── ADD SKIN PANEL ────────────────────────────────────────────────────────────
-function AddSkinPanel({ onAdd }) {
-  const [open, setOpen] = useState(true);
-  const [allSkins, setAllSkins] = useState([]);
-  const [loadingDB, setLoadingDB] = useState(false);
-  const [dbError, setDbError] = useState(null);
-  const [selWeapon, setSelWeapon] = useState(null);
-  const [skinSearch, setSkinSearch] = useState("");
-  const [selSkin, setSelSkin] = useState(null);
-  const [selWear, setSelWear] = useState(null);
-  const [buyPrice, setBuyPrice] = useState("");
-  const [marketPrice, setMarketPrice] = useState(null);
-  const [fetchingPrice, setFetchingPrice] = useState(false);
-  const [priceError, setPriceError] = useState(null);
-  const [rawMarketName, setRawMarketName] = useState("");
+  const weapons = [...new Map(allSkins.map(s => [s.weapon.name, s.weapon])).values()].sort((a,b) => a.name.localeCompare(b.name));
+  const skins4W = selW ? allSkins.filter(s => s.weapon.name === selW.name && (skinQ === "" || s.name.toLowerCase().includes(skinQ.toLowerCase()))) : [];
 
   useEffect(() => {
-    if (!open || allSkins.length > 0) return;
-    setLoadingDB(true);
-    fetch(SKINS_API).then(r => r.json())
-      .then(data => setAllSkins(data.filter(s => s.name && s.weapon?.name)))
-      .catch(() => setDbError("Impossible de charger la base."))
-      .finally(() => setLoadingDB(false));
-  }, [open]);
+    if (!selS || !selWr) { setMktP(null); setPErr(null); return; }
+    const name = `${selS.name} (${selWr})`;
+    setRawN(name); setFetching(true); setPErr(null); setMktP(null);
+    fetchSteamPrice(name).then(p => setMktP(p)).catch(e => setPErr(e.message)).finally(() => setFetching(false));
+  }, [selS, selWr]);
 
-  const weapons = [...new Map(allSkins.map(s => [s.weapon.name, s.weapon])).values()]
-    .sort((a, b) => {
-      const ai = POPULAR_WEAPONS.indexOf(a.name);
-      const bi = POPULAR_WEAPONS.indexOf(b.name);
-      if (ai !== -1 && bi !== -1) return ai - bi;
-      if (ai !== -1) return -1;
-      if (bi !== -1) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-  const skinsForWeapon = selWeapon
-    ? allSkins.filter(s => s.weapon.name === selWeapon.name && (skinSearch === "" || s.name.toLowerCase().includes(skinSearch.toLowerCase())))
-    : [];
-
-  useEffect(() => {
-    if (!selSkin || !selWear) { setMarketPrice(null); setPriceError(null); return; }
-    const name = `${selSkin.name} (${selWear})`;
-    setRawMarketName(name);
-    setFetchingPrice(true); setPriceError(null); setMarketPrice(null);
-    fetchSteamPrice(name)
-      .then(p => setMarketPrice(p))
-      .catch(e => setPriceError(e.message))
-      .finally(() => setFetchingPrice(false));
-  }, [selSkin, selWear]);
-
-  const step = !selWeapon ? 1 : !selSkin ? 2 : !selWear ? 3 : 4;
-
-  const reset = (w) => {
-    setSelWeapon(w);
-    setSelSkin(null);
-    setSelWear(null);
-    setSkinSearch("");
-    setMarketPrice(null);
-    setBuyPrice("");
-    setPriceError(null);
-  };
-
-  const buyNum = parseFloat(buyPrice) || 0;
-  const profit = marketPrice != null ? marketPrice - buyNum : null;
-  const pct = buyNum > 0 && profit != null ? (profit / buyNum) * 100 : null;
-  const canAdd = selSkin && selWear && buyNum > 0;
+  const step = !selW ? 1 : !selS ? 2 : !selWr ? 3 : 4;
+  const resetW = (w) => { setSelW(w); setSelS(null); setSelWr(null); setSkinQ(""); setMktP(null); setBuy(""); setPErr(null); };
+  const buyN = parseFloat(buy) || 0;
+  const profit = mktP != null ? mktP - buyN : null;
+  const pct = buyN > 0 && profit != null ? (profit / buyN) * 100 : null;
+  const canAdd = selS && selWr && buyN > 0;
 
   const handleAdd = () => {
     if (!canAdd) return;
-    onAdd({
-      weapon: selWeapon.name,
-      name: `${selSkin.name.split("|")[1]?.trim() ?? selSkin.name} ${WEAR_LABELS[selWear] ?? ""}`.trim(),
-      fullName: rawMarketName,
-      buy: buyNum,
-      marketPrice,
-      image: selSkin.image,
-      rarity: selSkin.rarity,
-      color: SKIN_COLORS[Math.floor(Math.random() * SKIN_COLORS.length)],
-    });
-    reset(null);
+    onAdd({ weapon:selW.name, name:`${selS.name.split("|")[1]?.trim() ?? selS.name} ${WEAR_MAP[selWr]??""}`.trim(), fullName:rawN, buy:buyN, marketPrice:mktP, image:selS.image, rarity:selS.rarity, color:COLORS[Math.floor(Math.random()*COLORS.length)] });
+    resetW(null);
   };
 
   return (
-    <div className="add-panel">
-      <div className="add-panel-hdr" onClick={() => setOpen(o => !o)}>
-        <span className="card-title">+ Ajouter un skin</span>
-        <span className={`chevron${open ? " open" : ""}`}>▲</span>
+    <>
+      <div className="sec-head">Ajouter un skin</div>
+      <div className="steps-bar">
+        {["Arme","Skin","Usure","Prix"].map((s,i) => (
+          <div key={s} className={`step-c${step>i+1?" done":step===i+1?" active":""}`}>
+            <span className="step-n">{step>i+1?"✓":i+1}</span>{s}
+          </div>
+        ))}
       </div>
 
-      {open && (
-        <div style={{ marginTop: 16 }}>
-          <div className="steps">
-            {["Arme", "Skin", "Usure", "Prix"].map((s, i) => (
-              <div key={s} className={`step${step > i + 1 ? " done" : step === i + 1 ? " active" : ""}`}>
-                <span className="step-num">{step > i + 1 ? "✓" : i + 1}</span>{s}
-              </div>
-            ))}
-          </div>
+      {loadingDB && <div style={{ display:"flex",alignItems:"center",gap:8 }}><div className="spin"/><span className="muted">Chargement...</span></div>}
+      {dbError && <p className="err-txt">{dbError}</p>}
+      {!loadingDB && !dbError && <>
+        <div className="f-label">
+          {selW ? <span style={{ color:"#00ff87" }}>✓ {selW.name} <button className="btn-lnk" onClick={() => resetW(null)}>changer</button></span> : "Arme"}
+        </div>
+        {!selW && <WeaponDropdown weapons={weapons} value={selW} onChange={resetW} />}
+        {selW && <div style={{ padding:"7px 11px",background:"#111",border:"1px solid #1e1e1e",borderRadius:8,fontSize:13,color:"#f5f5f5",marginBottom:14 }}>{selW.name}</div>}
 
-          {loadingDB && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0" }}>
-              <div className="spin" /><span className="muted">Chargement de la base…</span>
+        {selW && <>
+          <div className="f-label mb8">
+            {selS ? <span style={{ color:"#00ff87" }}>✓ {selS.name.split("|")[1]?.trim()} <button className="btn-lnk" onClick={() => { setSelS(null); setSelWr(null); setMktP(null); }}>changer</button></span> : `Skin (${skins4W.length})`}
+          </div>
+          {!selS && <>
+            <input className="f-inp mb8" placeholder="Rechercher un skin..." value={skinQ} onChange={e => setSkinQ(e.target.value)} />
+            <div className="skin-opts">
+              {skins4W.map(s => (
+                <div key={s.id} className="sk-opt" onClick={() => { setSelS(s); setSelWr(null); setMktP(null); }}>
+                  {s.image && <img src={s.image} alt="" />}
+                  <div>
+                    <div className="sk-opt-name">{s.name.split("|")[1]?.trim()}</div>
+                    <div className="sk-opt-rare" style={{ color:s.rarity?.color??"#444" }}>{s.rarity?.name}</div>
+                  </div>
+                </div>
+              ))}
+              {skins4W.length === 0 && <div style={{ padding:12,textAlign:"center",fontSize:11,color:"#333" }}>Aucun résultat</div>}
+            </div>
+          </>}
+          {selS && <div style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"#111",borderRadius:8,border:"1px solid #1e1e1e",marginBottom:14 }}>
+            {selS.image && <img src={selS.image} style={{ width:40,height:27,objectFit:"contain",borderRadius:4 }} alt=""/>}
+            <span style={{ fontSize:12,fontWeight:500,color:"#ccc" }}>{selS.name.split("|")[1]?.trim()}</span>
+          </div>}
+        </>}
+
+        {selS && <>
+          <div className="f-label mb8">
+            {selWr ? <span style={{ color:"#00ff87" }}>✓ {selWr} <button className="btn-lnk" onClick={() => setSelWr(null)}>changer</button></span> : "Usure"}
+          </div>
+          {!selWr && <div className="wear-row">
+            {WEAR_ORDER.map(w => {
+              const ok = selS.wears?.some(sw => sw.name === w);
+              return <button key={w} className={`w-btn${!ok?" na":""}`} onClick={() => ok && setSelWr(w)}><div style={{ fontSize:13,fontWeight:700 }}>{WEAR_MAP[w]}</div></button>;
+            })}
+          </div>}
+          {selWr && <div style={{ padding:"7px 11px",background:"#111",border:"1px solid #1e1e1e",borderRadius:8,fontSize:13,color:"#ccc",marginBottom:14 }}>{selWr}</div>}
+        </>}
+
+        {selWr && <>
+          <div className="p-boxes">
+            <div className="p-box">
+              <div className="p-box-lbl">Ton achat</div>
+              <input className="f-inp" type="number" step="0.01" placeholder="0.00" value={buy} onChange={e => setBuy(e.target.value)} style={{ fontSize:14 }}/>
+              {buyN > 0 && <div className="p-box-val" style={{ color:"#00ff87",marginTop:6,fontSize:16 }}>{buyN.toFixed(2)} €</div>}
+            </div>
+            <div className="p-box">
+              <div className="p-box-lbl">Steam</div>
+              {fetching && <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:6 }}><div className="spin"/><span className="muted">...</span></div>}
+              {!fetching && mktP != null && <div className="p-box-val" style={{ color:"#00ff87",marginTop:6,fontSize:16 }}>{mktP.toFixed(2)} €</div>}
+              {!fetching && pErr && <p className="err-txt">{pErr}</p>}
+              <div style={{ fontSize:9,color:"#2a2a2a",marginTop:4,wordBreak:"break-all" }}>{rawN}</div>
+            </div>
+          </div>
+          {buyN > 0 && mktP != null && (
+            <div className="cmp">
+              <div className="cmp-top">
+                <span className="cmp-lbl">Achat vs marché</span>
+                <span style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:500,color:profit>=0?"#00ff87":"#ff4d4d" }}>
+                  {profit>=0?"+":""}{profit.toFixed(2)} € ({pct>=0?"+":""}{pct.toFixed(1)}%)
+                </span>
+              </div>
+              <div className="cmp-track"><div className="cmp-fill" style={{ width:`${Math.min(100,(Math.min(buyN,mktP)/Math.max(buyN,mktP))*100)}%`,background:profit>=0?"#00ff87":"#ff4d4d" }}/></div>
+              <div className="cmp-labs">
+                <span style={{ color:"#555" }}>Achat {buyN.toFixed(2)} €</span>
+                <span style={{ color:"#00ff87" }}>Marché {mktP.toFixed(2)} €</span>
+              </div>
             </div>
           )}
-          {dbError && <p className="err">{dbError}</p>}
-
-          {!loadingDB && !dbError && (
-            <>
-              {/* ÉTAPE 1 — ARME */}
-              <div className="sec-lbl">
-                {selWeapon
-                  ? <span style={{ color: "#3fb950" }}>✓ {selWeapon.name} <button className="btn-link" onClick={() => reset(null)}>modifier</button></span>
-                  : "1. Arme"}
-              </div>
-
-              {!selWeapon && (
-                <WeaponCombobox weapons={weapons} onSelect={(w) => reset(w)} />
-              )}
-
-              {/* ÉTAPE 2 — SKIN */}
-              {selWeapon && (
-                <>
-                  <div className="sec-lbl" style={{ marginTop: 10 }}>
-                    {selSkin
-                      ? <span style={{ color: "#3fb950" }}>✓ {selSkin.name.split("|")[1]?.trim()} <button className="btn-link" onClick={() => { setSelSkin(null); setSelWear(null); setMarketPrice(null); }}>modifier</button></span>
-                      : `2. Skin (${skinsForWeapon.length})`}
-                  </div>
-
-                  {!selSkin && (
-                    <>
-                      <input
-                        className="inp"
-                        style={{ marginBottom: 8 }}
-                        placeholder="Rechercher un skin…"
-                        value={skinSearch}
-                        onChange={e => setSkinSearch(e.target.value)}
-                      />
-                      <div className="skin-scroll">
-                        {skinsForWeapon.map(s => (
-                          <div key={s.id} className="skin-opt" onClick={() => { setSelSkin(s); setSelWear(null); setMarketPrice(null); }}>
-                            {s.image && <img src={s.image} className="skin-img" alt="" loading="lazy" />}
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 500, color: "#e6edf3" }}>{s.name.split("|")[1]?.trim()}</div>
-                              <div style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 10, color: s.rarity?.color ?? "#484f58", marginTop: 2 }}>{s.rarity?.name ?? "—"}</div>
-                            </div>
-                          </div>
-                        ))}
-                        {skinsForWeapon.length === 0 && <p className="muted" style={{ padding: "12px 0" }}>Aucun résultat.</p>}
-                      </div>
-                    </>
-                  )}
-
-                  {/* ÉTAPE 3 — USURE */}
-                  {selSkin && (
-                    <>
-                      <div className="sec-lbl" style={{ marginTop: 10 }}>
-                        {selWear
-                          ? <span style={{ color: "#3fb950" }}>✓ {selWear} <button className="btn-link" onClick={() => setSelWear(null)}>modifier</button></span>
-                          : "3. Usure"}
-                      </div>
-
-                      {!selWear && (
-                        <div className="wear-grid">
-                          {WEAR_ORDER.map(w => {
-                            const ok = selSkin.wears?.some(sw => sw.name === w);
-                            return (
-                              <button key={w} className={`wear-btn${!ok ? " unavail" : ""}`} onClick={() => ok && setSelWear(w)}>
-                                <div style={{ fontSize: 13, fontWeight: 600 }}>{WEAR_LABELS[w]}</div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* ÉTAPE 4 — PRIX */}
-                      {selWear && (
-                        <>
-                          <div className="sec-lbl" style={{ marginTop: 10 }}>4. Prix</div>
-                          <div className="price-row">
-                            <div className="price-box">
-                              <div className="price-box-lbl">Ton prix d'achat</div>
-                              <input className="inp" type="number" step="0.01" placeholder="ex: 52.00" value={buyPrice} onChange={e => setBuyPrice(e.target.value)} style={{ fontSize: 14 }} />
-                              {buyNum > 0 && <div className="price-box-val" style={{ color: "#58a6ff" }}>{buyNum.toFixed(2)} €</div>}
-                            </div>
-                            <div className="price-box">
-                              <div className="price-box-lbl">Steam lowest_price</div>
-                              {fetchingPrice && <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}><div className="spin" /><span className="muted">Proxy…</span></div>}
-                              {!fetchingPrice && marketPrice != null && <div className="price-box-val" style={{ color: "#3fb950" }}>{marketPrice.toFixed(2)} €</div>}
-                              {!fetchingPrice && priceError && <p className="err" style={{ marginTop: 8 }}>{priceError}</p>}
-                              <div className="price-box-sub">{rawMarketName}</div>
-                            </div>
-                          </div>
-
-                          {buyNum > 0 && marketPrice != null && (
-                            <div className="cmp-bar">
-                              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                <span className="muted">Achat vs marché</span>
-                                <span style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 12, color: profit >= 0 ? "#3fb950" : "#f85149" }}>
-                                  {profit >= 0 ? "+" : ""}{profit.toFixed(2)} € ({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)
-                                </span>
-                              </div>
-                              <div className="cmp-track">
-                                <div className="cmp-fill" style={{ width: `${Math.min(100, (Math.min(buyNum, marketPrice) / Math.max(buyNum, marketPrice)) * 100)}%`, background: profit >= 0 ? "#3fb950" : "#f85149" }} />
-                              </div>
-                              <div className="cmp-labels">
-                                <span style={{ color: "#58a6ff" }}>Achat {buyNum.toFixed(2)} €</span>
-                                <span style={{ color: "#3fb950" }}>Marché {marketPrice.toFixed(2)} €</span>
-                              </div>
-                            </div>
-                          )}
-
-                          <button className="btn-add" disabled={!canAdd} onClick={handleAdd}>
-                            {canAdd ? "Ajouter →" : "Saisissez un prix d'achat"}
-                          </button>
-                        </>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
+          <button className="btn-add" disabled={!canAdd} onClick={handleAdd}>
+            {canAdd ? "Ajouter au portefeuille" : "Saisissez un prix d'achat"}
+          </button>
+        </>}
+      </>}
+    </>
   );
 }
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function CS2Dashboard() {
   const [portfolio, setPortfolio] = useState([]);
-  const [tab, setTab] = useState("valeur");
-  const [timeRange, setTimeRange] = useState("all");
-  const [weaponFilter, setWeaponFilter] = useState("Tout");
-  const [hidden, setHidden] = useState({});
+  const [tab, setTab]             = useState("valeur");
+  const [range, setRange]         = useState("all");
+  const [wFilter, setWFilter]     = useState("Tout");
+  const [hidden, setHidden]       = useState({});
   const [refreshing, setRefreshing] = useState(false);
-  const [priceHistory, setPriceHistory] = useState({});
-  const [lastRefresh, setLastRefresh] = useState(null);
+  const [history, setHistory]     = useState({});
+  const [lastRef, setLastRef]     = useState(null);
+  const [allSkins, setAllSkins]   = useState([]);
+  const [loadDB, setLoadDB]       = useState(false);
+  const [dbErr, setDbErr]         = useState(null);
   const injected = useRef(false);
-  const intervalRef = useRef(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     if (injected.current) return;
-    const s = document.createElement("style"); s.textContent = CSS;
-    document.head.appendChild(s); injected.current = true;
+    const s = document.createElement("style");
+    s.textContent = CSS;
+    document.head.appendChild(s);
+    injected.current = true;
+  }, []);
+
+  useEffect(() => {
+    setLoadDB(true);
+    fetch(SKINS_API).then(r => r.json())
+      .then(d => setAllSkins(d.filter(s => s.name && s.weapon?.name)))
+      .catch(() => setDbErr("Impossible de charger la base."))
+      .finally(() => setLoadDB(false));
   }, []);
 
   const loadHistory = useCallback(async () => {
-    try {
-      const res = await fetch(HISTORY_URL());
-      if (res.ok) setPriceHistory(await res.json());
-    } catch {}
+    try { const r = await fetch(HIST_URL()); if (r.ok) setHistory(await r.json()); } catch {}
   }, []);
-
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const recordPrices = useCallback(async () => {
-    if (portfolio.length === 0) return;
+    if (!portfolio.length) return;
     setRefreshing(true);
     try {
-      const names = portfolio.map(s => s.fullName);
-      const res = await fetch(RECORD_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skins: names }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPortfolio(prev => prev.map(s => {
-          const r = data.recorded[s.fullName];
-          return r?.success ? { ...s, marketPrice: r.price, lastRefresh: new Date().toISOString() } : s;
-        }));
+      const r = await fetch(RECORD_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ skins:portfolio.map(s => s.fullName) }) });
+      if (r.ok) {
+        const d = await r.json();
+        setPortfolio(p => p.map(s => { const rr = d.recorded[s.fullName]; return rr?.success ? {...s,marketPrice:rr.price} : s; }));
         await loadHistory();
-        setLastRefresh(new Date());
+        setLastRef(new Date());
       }
     } catch {}
     setRefreshing(false);
   }, [portfolio, loadHistory]);
 
   useEffect(() => {
-    if (portfolio.length === 0) return;
-    intervalRef.current = setInterval(recordPrices, AUTO_REFRESH_MS);
-    return () => clearInterval(intervalRef.current);
+    if (!portfolio.length) return;
+    timerRef.current = setInterval(recordPrices, AUTO_MS);
+    return () => clearInterval(timerRef.current);
   }, [portfolio.length, recordPrices]);
 
   const addSkin = useCallback((skin) => {
-    setPortfolio(prev => [...prev, { ...skin, id: Date.now(), addedAt: new Date().toISOString() }]);
-    setTimeout(loadHistory, 500);
+    setPortfolio(p => [...p, {...skin, id:Date.now()}]);
+    setTimeout(loadHistory, 600);
   }, [loadHistory]);
-
-  const deleteSkin = (id) => {
-    setPortfolio(prev => prev.filter(s => s.id !== id));
-    setHidden(prev => { const n = { ...prev }; delete n[id]; return n; });
+  const delSkin = (id) => {
+    setPortfolio(p => p.filter(s => s.id !== id));
+    setHidden(h => { const n={...h}; delete n[id]; return n; });
   };
+  const toggleHide = (id) => setHidden(h => ({...h,[id]:!h[id]}));
 
-  const toggleHidden = (id) => setHidden(prev => ({ ...prev, [id]: !prev[id] }));
-
+  // ── Derived ─────────────────────────────────────────────────────────────────
   const weapons = ["Tout", ...Array.from(new Set(portfolio.map(s => s.weapon)))];
-  const activeSkins = weaponFilter === "Tout" ? portfolio : portfolio.filter(s => s.weapon === weaponFilter);
-  const totalBuy = activeSkins.reduce((a, s) => a + s.buy, 0);
-  const totalMarket = activeSkins.reduce((a, s) => a + (s.marketPrice ?? s.buy), 0);
-  const profit = totalMarket - totalBuy;
-  const pct = totalBuy > 0 ? (profit / totalBuy) * 100 : 0;
-  const profitColor = profit >= 0 ? "#3fb950" : "#f85149";
+  const active  = wFilter === "Tout" ? portfolio : portfolio.filter(s => s.weapon === wFilter);
+  const totalBuy    = active.reduce((a,s) => a+s.buy, 0);
+  const totalMarket = active.reduce((a,s) => a+(s.marketPrice??s.buy), 0);
+  const profit  = totalMarket - totalBuy;
+  const pct     = totalBuy > 0 ? (profit/totalBuy)*100 : 0;
 
+  // ── Timeline ─────────────────────────────────────────────────────────────────
   const now = Date.now();
-  const rangeMs = TIME_RANGES.find(r => r.key === timeRange)?.ms ?? Infinity;
-  const cutoff = rangeMs === Infinity ? 0 : now - rangeMs;
+  const rangeMs = RANGES.find(r => r.key === range)?.ms ?? Infinity;
+  const cutoff  = rangeMs === Infinity ? 0 : now - rangeMs;
 
-  const buildValueTimeline = () => {
-    const allTimes = new Set();
-    activeSkins.forEach(s => {
-      const h = priceHistory[s.fullName] || [];
-      h.forEach(pt => { if (pt.t >= cutoff) allTimes.add(pt.t); });
-    });
-    const sortedTimes = [...allTimes].sort((a, b) => a - b);
-    if (sortedTimes.length === 0) return [];
-    return sortedTimes.map(t => {
-      const point = { time: t, label: formatTime(t, timeRange) };
-      let total = 0, totalBuyRef = 0;
-      activeSkins.forEach(s => {
-        const h = priceHistory[s.fullName] || [];
+  const buildTimeline = () => {
+    const allTs = new Set();
+    active.forEach(s => { (history[s.fullName]||[]).forEach(p => { if(p.t >= cutoff) allTs.add(p.t); }); });
+    const sorted = [...allTs].sort((a,b) => a-b);
+    if (!sorted.length) return [];
+    return sorted.map(t => {
+      const pt = { time:t, label:fmtTime(t, range) };
+      let tot=0, ref=0;
+      active.forEach(s => {
+        if (hidden[s.id]) return;
+        const h = history[s.fullName]||[];
         const before = h.filter(p => p.t <= t);
-        const price = before.length > 0 ? before[before.length - 1].p : (s.marketPrice ?? s.buy);
-        if (!hidden[s.id]) { total += price; totalBuyRef += s.buy; point[s.name] = price; }
+        const p = before.length ? before[before.length-1].p : (s.marketPrice??s.buy);
+        tot += p; ref += s.buy; pt[s.name] = p;
       });
-      point.valeur = total; point.profit = total - totalBuyRef; point.prix_initial = totalBuyRef;
-      return point;
+      pt.valeur = tot; pt.profit = tot - ref; pt.ref = ref;
+      return pt;
     });
   };
 
-  const timeline = portfolio.length > 0 ? buildValueTimeline() : [];
-  const hasHistory = timeline.length > 1;
-  const firstVal = timeline.length > 0 ? timeline[0].valeur : totalMarket;
-  const lastVal = timeline.length > 0 ? timeline[timeline.length - 1].valeur : totalMarket;
-  const changeAbs = lastVal - firstVal;
-  const changePct = firstVal > 0 ? (changeAbs / firstVal) * 100 : 0;
+  const timeline  = buildTimeline();
+  const hasHist   = timeline.length > 1;
+  const firstVal  = timeline.length ? timeline[0].valeur : totalMarket;
+  const lastVal   = timeline.length ? timeline[timeline.length-1].valeur : totalMarket;
+  const chgAbs    = lastVal - firstVal;
+  const chgPct    = firstVal > 0 ? (chgAbs/firstVal)*100 : 0;
+  const isUp      = chgAbs >= 0;
 
-  const comparisonData = activeSkins.filter(s => !hidden[s.id]).map(s => ({
-    name: s.name.length > 16 ? s.name.slice(0, 14) + "…" : s.name,
-    achat: s.buy, marche: s.marketPrice ?? s.buy, color: s.color,
+  const compData  = active.filter(s => !hidden[s.id]).map(s => ({
+    name: s.name.length > 13 ? s.name.slice(0,11)+"…" : s.name,
+    achat: s.buy, marche: s.marketPrice??s.buy,
+    profit: (s.marketPrice??s.buy)-s.buy, color:s.color,
   }));
 
+  const totalPts = Object.values(history).reduce((a,h) => a+h.length, 0);
+
   return (
-    <div className="d">
-      <div className="hdr">
-        <div className="pulse" />
-        <span className="htitle">CS2 // INVENTORY TRACKER</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
-          {lastRefresh && <span className="muted">màj {lastRefresh.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>}
-          <span className="auto-badge"><div className="pulse" style={{ width: 5, height: 5 }} /> auto {AUTO_REFRESH_MS / 60000}min</span>
+    <div className="shell">
+      {/* TOPBAR */}
+      <header className="topbar">
+        <div className="logo">
+          <div className="logo-mark">
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="28" height="28" rx="7" fill="#0f0f0f" stroke="#1e1e1e" strokeWidth="1"/>
+              {/* CS2 crosshair-inspired mark: two overlapping diamonds */}
+              <path d="M14 5L19 11H9L14 5Z" fill="#00ff87"/>
+              <path d="M14 23L9 17H19L14 23Z" fill="#00ff87" fillOpacity="0.5"/>
+              <rect x="11" y="11" width="6" height="6" rx="1" fill="#00ff87" fillOpacity="0.9"/>
+            </svg>
+          </div>
+          CS2 Tracker
         </div>
-      </div>
+        <div className="topbar-sep"/>
+        <span className="topbar-label">Inventory</span>
+        <div className="ms-left" style={{ display:"flex",alignItems:"center",gap:8 }}>
+          {lastRef && <span className="muted" style={{ fontSize:11 }}>màj {lastRef.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}</span>}
+          <div className="badge-live"><div className="dot-live"/>LIVE · auto {AUTO_MS/60000}min</div>
+          <button className="btn-top" onClick={recordPrices} disabled={refreshing}>
+            {refreshing ? "..." : "↻ Actualiser"}
+          </button>
+        </div>
+      </header>
 
-      <div className="kpis">
-        <KpiCard label="investi" value={totalBuy > 0 ? `${totalBuy.toFixed(2)} €` : "—"} sub={`${activeSkins.length} skin${activeSkins.length !== 1 ? "s" : ""}`} />
-        <KpiCard label="valeur marché" value={totalMarket > 0 ? `${totalMarket.toFixed(2)} €` : "—"} sub="Steam lowest price" />
-        <KpiCard label="profit / perte" value={totalBuy > 0 ? `${profit >= 0 ? "+" : ""}${profit.toFixed(2)} €` : "—"} sub={totalBuy > 0 ? `${pct >= 0 ? "+" : ""}${pct.toFixed(1)} %` : ""} color={totalBuy > 0 ? profitColor : "#484f58"} />
-        <KpiCard label="skins" value={activeSkins.length} sub="via Steam API" />
-      </div>
+      {/* SIDEBAR */}
+      <aside className="sidebar">
+        <div className="sidebar-inner">
+          <AddPanel onAdd={addSkin} allSkins={allSkins} loadingDB={loadDB} dbError={dbErr} />
 
-      <AddSkinPanel onAdd={addSkin} />
-
-      {portfolio.length > 0 && <>
-        <div className="card">
-          <div className="card-hdr">
+          {portfolio.length > 0 && <>
+            <div className="divider"/>
+            <div className="sec-head">Mes skins</div>
+            {weapons.length > 2 && (
+              <div className="f-pills mb12">
+                {weapons.map(w => <button key={w} className={`f-pill${wFilter===w?" on":""}`} onClick={() => setWFilter(w)}>{w}</button>)}
+              </div>
+            )}
             <div>
-              <span className="card-title">Évolution du portefeuille</span>
-              {hasHistory && tab === "valeur" && (
-                <div className="price-current" style={{ marginTop: 8 }}>
-                  <span className="price-big">{lastVal.toFixed(2)} €</span>
-                  <span className="price-change" style={{ color: changeAbs >= 0 ? "#3fb950" : "#f85149" }}>
-                    {changeAbs >= 0 ? "+" : ""}{changeAbs.toFixed(2)} € ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
-                  </span>
-                </div>
-              )}
+              {active.map(s => {
+                const curr = s.marketPrice ?? s.buy;
+                const d = curr - s.buy;
+                const dp = s.buy > 0 ? (d/s.buy)*100 : 0;
+                const col = d >= 0 ? "#00ff87" : "#ff4d4d";
+                return (
+                  <div key={s.id} className={`skin-item${hidden[s.id]?" dim":""}`} onClick={() => toggleHide(s.id)}>
+                    <div style={{ width:3,height:32,background:s.color,borderRadius:2,flexShrink:0 }}/>
+                    {s.image ? <img src={s.image} style={{ width:44,height:30,objectFit:"contain",flexShrink:0 }} alt=""/> : <div style={{ width:44,height:30,background:"#111",borderRadius:4,flexShrink:0 }}/>}
+                    <div className="skin-item-info">
+                      <div className="skin-item-name">{s.name}</div>
+                      <div className="skin-item-sub">{s.weapon} · {s.buy.toFixed(2)} €</div>
+                    </div>
+                    <div className="skin-item-price">
+                      <div className="skin-price-val">{curr.toFixed(2)} €</div>
+                      <div className="skin-price-delta" style={{ color:col }}>{d>=0?"+":""}{dp.toFixed(1)}%</div>
+                    </div>
+                    <button className="skin-del" onClick={e => { e.stopPropagation(); delSkin(s.id); }}>×</button>
+                  </div>
+                );
+              })}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="refresh-btn" onClick={recordPrices} disabled={refreshing}>
-                  {refreshing ? "..." : "↻ Rafraîchir"}
-                </button>
-                <div className="tabs">
-                  {["valeur", "profit", "skins", "comparaison"].map(t => (
-                    <button key={t} className={`tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
+          </>}
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <main className="main">
+        {portfolio.length === 0 ? (
+          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,textAlign:"center" }}>
+            <div style={{ fontSize:56 }}>🎯</div>
+            <div style={{ fontSize:20,fontWeight:600,color:"#fff" }}>Aucun skin</div>
+            <p style={{ fontSize:13,color:"#444",maxWidth:340,lineHeight:1.7 }}>Ajoutez vos premiers skins via le panneau de gauche. Les courbes d'évolution se construiront automatiquement.</p>
+          </div>
+        ) : <>
+          {/* KPI STRIP */}
+          <div className="kpi-strip">
+            <div className="kpi-cell">
+              <div className="kpi-cell-label">Investi</div>
+              <div className="kpi-cell-val">{fmt(totalBuy)} €</div>
+              <div className="kpi-cell-sub">{active.length} skin{active.length!==1?"s":""}</div>
+            </div>
+            <div className="kpi-cell">
+              <div className="kpi-cell-label">Valeur marché</div>
+              <div className="kpi-cell-val">{fmt(totalMarket)} €</div>
+              <div className="kpi-cell-sub">Steam lowest price</div>
+            </div>
+            <div className="kpi-cell">
+              <div className="kpi-cell-label">Profit / Perte</div>
+              <div className="kpi-cell-val" style={{ color:profit>=0?"#00ff87":"#ff4d4d" }}>{profit>=0?"+":""}{fmt(profit)} €</div>
+              <div className="kpi-cell-sub">{pct>=0?"+":""}{fmt(pct,1)} % depuis l'achat</div>
+            </div>
+            <div className="kpi-cell">
+              <div className="kpi-cell-label">Points de données</div>
+              <div className="kpi-cell-val">{totalPts}</div>
+              <div className="kpi-cell-sub">enregistrés par le proxy</div>
+            </div>
+          </div>
+
+          {/* CHART CARD */}
+          <div className="card mb12" style={{ marginBottom:12 }}>
+            <div className="chart-top">
+              <div>
+                <div className="card-title" style={{ marginBottom:8, color:"#888" }}>Évolution du portefeuille</div>
+                {hasHist && (
+                  <div style={{ display:"flex",alignItems:"baseline",gap:10 }}>
+                    <span className="price-big">{fmt(lastVal)} €</span>
+                    <span className={`price-chip ${isUp?"chip-up":"chip-dn"}`}>
+                      {isUp?"+":""}{fmt(chgAbs)} € ({isUp?"+":""}{fmt(chgPct,2)}%)
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="chart-controls">
+                <div className="tab-row">
+                  {["valeur","profit","skins","comparaison"].map(t => (
+                    <button key={t} className={`t-btn${tab===t?" on":""}`} onClick={() => setTab(t)}>
+                      {t.charAt(0).toUpperCase()+t.slice(1)}
                     </button>
                   ))}
                 </div>
+                {tab !== "comparaison" && (
+                  <div className="range-row">
+                    {RANGES.map(r => <button key={r.key} className={`r-btn${range===r.key?" on":""}`} onClick={() => setRange(r.key)}>{r.label}</button>)}
+                  </div>
+                )}
               </div>
-              {tab !== "comparaison" && (
-                <div className="time-tabs">
-                  {TIME_RANGES.map(r => (
-                    <button key={r.key} className={`time-tab${timeRange === r.key ? " on" : ""}`} onClick={() => setTimeRange(r.key)}>{r.label}</button>
-                  ))}
+            </div>
+
+            {tab === "skins" && (
+              <div className="leg-row">
+                {active.map(s => (
+                  <span key={s.id} className={`leg-it${hidden[s.id]?" dim":""}`} onClick={() => toggleHide(s.id)}>
+                    <span className="leg-dot" style={{ background:hidden[s.id]?"#222":s.color }}/>
+                    {s.name}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="chart-area">
+              {tab === "comparaison" ? (
+                compData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={Math.max(200, compData.length*44+30)}>
+                    <BarChart data={compData} layout="vertical" margin={{ top:4,right:16,bottom:0,left:0 }}>
+                      <CartesianGrid strokeDasharray="2 2" stroke="#141414" horizontal={false}/>
+                      <XAxis type="number" tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} tickFormatter={v=>v.toFixed(0)+"€"}/>
+                      <YAxis type="category" dataKey="name" width={100} tick={{ fontFamily:"'Inter',sans-serif",fontSize:11,fill:"#555" }} tickLine={false} axisLine={false}/>
+                      <Tooltip content={<Tip/>} cursor={{ fill:"rgba(255,255,255,0.03)" }}/>
+                      <Bar dataKey="marche" name="Marché" fill="#00ff87" barSize={9} radius={[0,3,3,0]} fillOpacity={0.85}/>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <div className="chart-empty"><p>Aucun skin visible.</p></div>
+              ) : !hasHist ? (
+                <div className="chart-empty">
+                  <div className="e-icon">📈</div>
+                  <p>Cliquez "↻ Actualiser" pour enregistrer le premier point de données. Les courbes se construiront au fil du temps.</p>
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className="legend">
-            {tab === "valeur" && <><span className="leg"><span className="legdot" style={{ background: "#3fb950" }} />Valeur actuelle</span><span className="leg"><span className="legdot" style={{ background: "#f85149", opacity: .5 }} />Prix initial</span></>}
-            {tab === "profit" && <span className="leg"><span className="legdot" style={{ background: "#58a6ff" }} />Profit net</span>}
-            {tab === "skins" && activeSkins.map(s => (
-              <span key={s.id} className={`leg${hidden[s.id] ? " dim" : ""}`} onClick={() => toggleHidden(s.id)}>
-                <span className="legdot" style={{ background: hidden[s.id] ? "#30363d" : s.color }} />{s.name}
-              </span>
-            ))}
-            {tab === "comparaison" && <><span className="leg"><span className="legdot" style={{ background: "#58a6ff" }} />Achat</span><span className="leg"><span className="legdot" style={{ background: "#3fb950" }} />Marché</span></>}
-          </div>
-
-          {tab === "comparaison" ? (
-            comparisonData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(200, comparisonData.length * 48 + 40)}>
-                <BarChart data={comparisonData} layout="vertical" margin={{ top: 4, right: 10, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#161b22" horizontal={false} />
-                  <XAxis type="number" tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} tickFormatter={v => v.toFixed(0) + "€"} />
-                  <YAxis type="category" dataKey="name" width={120} tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#6e7681" }} tickLine={false} axisLine={false} />
-                  <Tooltip content={<Tip />} />
-                  <Bar dataKey="achat" name="Achat" fill="#58a6ff" barSize={12} radius={[0, 3, 3, 0]} />
-                  <Bar dataKey="marche" name="Marché" fill="#3fb950" barSize={12} radius={[0, 3, 3, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <div className="chart-empty">Ajoutez des skins pour voir la comparaison.</div>
-          ) : hasHistory ? (
-            <ResponsiveContainer width="100%" height={280}>
-              {tab === "valeur" ? (
-                <AreaChart data={timeline} margin={{ top: 4, right: 10, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="gVal" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#3fb950" stopOpacity={0.15} />
-                      <stop offset="100%" stopColor="#3fb950" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#161b22" />
-                  <XAxis dataKey="label" tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} tickFormatter={v => v.toFixed(0) + "€"} width={52} orientation="right" domain={["dataMin - 5", "dataMax + 5"]} />
-                  <Tooltip content={<Tip />} />
-                  <Area type="monotone" dataKey="valeur" name="Valeur" stroke="#3fb950" strokeWidth={2} fill="url(#gVal)" dot={false} activeDot={{ r: 4, fill: "#3fb950" }} />
-                  <Line type="monotone" dataKey="prix_initial" name="Prix initial" stroke="#f85149" strokeWidth={1} strokeDasharray="6 3" dot={false} opacity={0.5} />
-                </AreaChart>
+              ) : tab === "valeur" ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={timeline} margin={{ top:4,right:16,bottom:0,left:0 }}>
+                    <defs>
+                      <linearGradient id="gV" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#00ff87" stopOpacity={0.15}/>
+                        <stop offset="100%" stopColor="#00ff87" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="2 2" stroke="#141414"/>
+                    <XAxis dataKey="label" tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} tickFormatter={v=>v.toFixed(0)+"€"} width={50} orientation="right" domain={["dataMin - 3","dataMax + 3"]}/>
+                    <Tooltip content={<Tip/>} cursor={{ stroke:"rgba(255,255,255,0.06)", strokeWidth:1, fill:"transparent" }}/>
+                    <Area type="monotone" dataKey="valeur" name="Valeur" stroke="#00ff87" strokeWidth={1.5} fill="url(#gV)" dot={false} activeDot={{ r:3,fill:"#00ff87",strokeWidth:0 }}/>
+                    <Line type="monotone" dataKey="ref" name="Prix initial" stroke="#ff4d4d" strokeWidth={1} strokeDasharray="5 4" dot={false} opacity={0.4}/>
+                  </AreaChart>
+                </ResponsiveContainer>
               ) : tab === "profit" ? (
-                <AreaChart data={timeline} margin={{ top: 4, right: 10, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="gProf" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#58a6ff" stopOpacity={0.15} />
-                      <stop offset="100%" stopColor="#58a6ff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#161b22" />
-                  <XAxis dataKey="label" tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} tickFormatter={v => v.toFixed(0) + "€"} width={52} orientation="right" />
-                  <Tooltip content={<Tip />} />
-                  <ReferenceLine y={0} stroke="#21262d" strokeDasharray="4 4" />
-                  <Area type="monotone" dataKey="profit" name="Profit" stroke="#58a6ff" strokeWidth={2} fill="url(#gProf)" dot={false} activeDot={{ r: 4, fill: "#58a6ff" }} />
-                </AreaChart>
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={timeline} margin={{ top:4,right:16,bottom:0,left:0 }}>
+                    <defs>
+                      <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#00ff87" stopOpacity={0.12}/>
+                        <stop offset="100%" stopColor="#00ff87" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="2 2" stroke="#141414"/>
+                    <XAxis dataKey="label" tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} tickFormatter={v=>v.toFixed(0)+"€"} width={50} orientation="right"/>
+                    <Tooltip content={<Tip/>} cursor={{ stroke:"rgba(255,255,255,0.06)", strokeWidth:1, fill:"transparent" }}/>
+                    <ReferenceLine y={0} stroke="#222" strokeDasharray="3 3"/>
+                    <Area type="monotone" dataKey="profit" name="Profit" stroke="#00ff87" strokeWidth={1.5} fill="url(#gP)" dot={false} activeDot={{ r:3,fill:"#00ff87",strokeWidth:0 }}/>
+                  </AreaChart>
+                </ResponsiveContainer>
               ) : (
-                <LineChart data={timeline} margin={{ top: 4, right: 10, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#161b22" />
-                  <XAxis dataKey="label" tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 9, fill: "#484f58" }} tickLine={false} axisLine={false} tickFormatter={v => v.toFixed(0) + "€"} width={52} orientation="right" domain={["dataMin - 2", "dataMax + 2"]} />
-                  <Tooltip content={<Tip />} />
-                  {activeSkins.map(s => !hidden[s.id] && (
-                    <Line key={s.id} type="monotone" dataKey={s.name} name={s.name} stroke={s.color} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: s.color }} connectNulls />
-                  ))}
-                </LineChart>
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={timeline} margin={{ top:4,right:16,bottom:0,left:0 }}>
+                    <CartesianGrid strokeDasharray="2 2" stroke="#141414"/>
+                    <XAxis dataKey="label" tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} interval="preserveStartEnd"/>
+                    <YAxis tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} tickFormatter={v=>v.toFixed(0)+"€"} width={50} orientation="right" domain={["dataMin - 2","dataMax + 2"]}/>
+                    <Tooltip content={<Tip/>} cursor={{ stroke:"rgba(255,255,255,0.06)", strokeWidth:1, fill:"transparent" }}/>
+                    {active.map(s => !hidden[s.id] && <Line key={s.id} type="monotone" dataKey={s.name} name={s.name} stroke={s.color} strokeWidth={1.5} dot={false} activeDot={{ r:3,strokeWidth:0 }} connectNulls/>)}
+                  </LineChart>
+                </ResponsiveContainer>
               )}
-            </ResponsiveContainer>
-          ) : (
-            <div className="chart-empty">
-              <div style={{ fontSize: 24 }}>📈</div>
-              <p>Les courbes apparaîtront avec le temps.</p>
-              <p>Cliquez "↻ Rafraîchir" pour enregistrer un premier point.</p>
-            </div>
-          )}
-        </div>
-
-        <div className="bot">
-          <div className="card" style={{ marginBottom: 0 }}>
-            <div className="sec-lbl">mes skins</div>
-            <div className="pills">{weapons.map(w => <button key={w} className={`pill${weaponFilter === w ? " on" : ""}`} onClick={() => setWeaponFilter(w)}>{w}</button>)}</div>
-            <div className="slist">
-              {activeSkins.map(s => {
-                const curr = s.marketPrice ?? s.buy;
-                const delta = curr - s.buy;
-                const col = delta >= 0 ? "#3fb950" : "#f85149";
-                const dpct = s.buy > 0 ? (delta / s.buy) * 100 : 0;
-                const pts = (priceHistory[s.fullName] || []).length;
-                return (
-                  <div key={s.id} className={`srow${hidden[s.id] ? " dim" : ""}`} onClick={() => toggleHidden(s.id)}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {s.image ? <img src={s.image} style={{ width: 44, height: 32, objectFit: "contain", borderRadius: 4, flexShrink: 0 }} alt="" /> : <span style={{ width: 3, height: 34, background: s.color, flexShrink: 0 }} />}
-                      <div>
-                        <div className="sname">{s.name}</div>
-                        <div className="sweap">{s.weapon} · achat {s.buy.toFixed(2)} € · {pts} pts</div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div>
-                        <div className="sprice" style={{ color: "#e6edf3" }}>{curr.toFixed(2)} €</div>
-                        <div className="sdelta" style={{ color: col }}>{delta >= 0 ? "+" : ""}{delta.toFixed(2)} € ({dpct >= 0 ? "+" : ""}{dpct.toFixed(1)}%)</div>
-                      </div>
-                      <button className="btn-del" onClick={e => { e.stopPropagation(); deleteSkin(s.id); }}>✕</button>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
-          <div className="card" style={{ marginBottom: 0 }}>
-            <div className="sec-lbl">récapitulatif</div>
-            <div className="statgrid">
-              <div className="statbox"><div className="stlbl">investi</div><div className="stval">{totalBuy.toFixed(2)} €</div><div className="stfoot">total achat</div></div>
-              <div className="statbox"><div className="stlbl">marché</div><div className="stval" style={{ color: "#3fb950" }}>{totalMarket.toFixed(2)} €</div><div className="stfoot">Steam lowest</div></div>
+          {/* BOTTOM */}
+          <div className="bot-grid">
+            <div className="card">
+              <div className="card-pad">
+                <div className="card-title">Profit par skin</div>
+                {compData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={Math.max(160, compData.length*42+20)}>
+                    <BarChart data={compData} layout="vertical" margin={{ top:0,right:16,bottom:0,left:0 }}>
+                      <CartesianGrid strokeDasharray="2 2" stroke="#141414" horizontal={false}/>
+                      <XAxis type="number" tick={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,fill:"#555" }} tickLine={false} axisLine={false} tickFormatter={v=>(v>=0?"+":"")+v.toFixed(0)+"€"}/>
+                      <YAxis type="category" dataKey="name" width={100} tick={{ fontFamily:"'Inter',sans-serif",fontSize:11,fill:"#555" }} tickLine={false} axisLine={false}/>
+                      <Tooltip content={<Tip/>} cursor={{ fill:"rgba(255,255,255,0.03)" }}/>
+                      <ReferenceLine x={0} stroke="#1e1e1e"/>
+                      <Bar dataKey="profit" name="Profit" barSize={11} radius={[0,3,3,0]}>
+                        {compData.map((e,i) => <Cell key={i} fill={e.profit>=0?"#00ff87":"#ff4d4d"} fillOpacity={0.8}/>)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <div className="chart-empty" style={{ height:160 }}><p>Aucun skin</p></div>}
+              </div>
             </div>
-            <div className="statgrid">
-              <div className="statbox"><div className="stlbl">profit / perte</div><div className="stval" style={{ color: profitColor }}>{profit >= 0 ? "+" : ""}{profit.toFixed(2)} €</div><div className="stfoot">{pct >= 0 ? "+" : ""}{pct.toFixed(1)} %</div></div>
-              <div className="statbox"><div className="stlbl">données</div><div className="stval">{Object.values(priceHistory).reduce((a, h) => a + h.length, 0)}</div><div className="stfoot">points enregistrés</div></div>
-            </div>
-            {activeSkins.length > 0 && <>
-              <div className="sec-lbl" style={{ marginTop: 6 }}>top performances</div>
-              {[...activeSkins].sort((a, b) => ((b.marketPrice ?? b.buy) - b.buy) / b.buy - ((a.marketPrice ?? a.buy) - a.buy) / a.buy).slice(0, 3).map((s, i) => {
-                const d = (s.marketPrice ?? s.buy) - s.buy;
-                const dp = s.buy > 0 ? (d / s.buy) * 100 : 0;
-                return (
-                  <div key={s.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < 2 ? "1px solid #111827" : "none" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span className="muted" style={{ width: 16 }}>#{i + 1}</span>
-                      {s.image && <img src={s.image} style={{ width: 28, height: 20, objectFit: "contain", borderRadius: 2 }} alt="" />}
-                      <span style={{ fontSize: 11, color: "#e6edf3" }}>{s.name}</span>
-                    </div>
-                    <span style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 11, color: dp >= 0 ? "#3fb950" : "#f85149" }}>{dp >= 0 ? "+" : ""}{dp.toFixed(1)}%</span>
-                  </div>
-                );
-              })}
-            </>}
-          </div>
-        </div>
-      </>}
 
-      {portfolio.length === 0 && (
-        <div className="chart-empty" style={{ padding: "48px 20px" }}>
-          <div style={{ fontSize: 36 }}>🎯</div>
-          AUCUN SKIN — utilisez le panneau ci-dessus pour commencer
-        </div>
-      )}
+            <div className="card card-pad">
+              <div className="card-title">Récapitulatif</div>
+              <div className="stat-grid mb16">
+                {[
+                  { label:"Investi", val:`${fmt(totalBuy)} €`, color:"#fff" },
+                  { label:"Valeur marché", val:`${fmt(totalMarket)} €`, color:"#00ff87" },
+                  { label:"Profit total", val:`${profit>=0?"+":""}${fmt(profit)} €`, color:profit>=0?"#00ff87":"#ff4d4d" },
+                  { label:"Performance", val:`${pct>=0?"+":""}${fmt(pct,1)} %`, color:pct>=0?"#00ff87":"#ff4d4d" },
+                ].map(item => (
+                  <div key={item.label} className="stat-cell">
+                    <div className="stat-label">{item.label}</div>
+                    <div className="stat-val" style={{ color:item.color }}>{item.val}</div>
+                  </div>
+                ))}
+              </div>
+              {active.length > 0 && <>
+                <div className="card-title" style={{ marginBottom:10, color:"#888" }}>Top performances</div>
+                {[...active].sort((a,b) => {
+                  const pa = a.buy>0?((a.marketPrice??a.buy)-a.buy)/a.buy:0;
+                  const pb = b.buy>0?((b.marketPrice??b.buy)-b.buy)/b.buy:0;
+                  return pb - pa;
+                }).slice(0,4).map((s,i) => {
+                  const d = (s.marketPrice??s.buy) - s.buy;
+                  const dp = s.buy>0?(d/s.buy)*100:0;
+                  return (
+                    <div key={s.id} className="perf-item">
+                      <span className="perf-rank">#{i+1}</span>
+                      {s.image && <img src={s.image} style={{ width:30,height:21,objectFit:"contain",borderRadius:3,marginRight:6 }} alt=""/>}
+                      <span className="perf-name">{s.name}</span>
+                      <div style={{ textAlign:"right",flexShrink:0 }}>
+                        <div className="perf-val" style={{ color:dp>=0?"#00ff87":"#ff4d4d" }}>{dp>=0?"+":""}{dp.toFixed(1)}%</div>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"#444" }}>{d>=0?"+":""}{d.toFixed(2)} €</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>}
+            </div>
+          </div>
+        </>}
+      </main>
     </div>
   );
 }
