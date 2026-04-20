@@ -1,7 +1,7 @@
 "use client"
 
 import { Sun, Moon, RefreshCw, Zap, Download } from "lucide-react"
-import { useTheme } from "@/hooks/use-theme"
+import { useTheme } from "@/hooks/useTheme"
 import { Button } from "@/components/ui/button"
 import type { PortfolioSkin } from "./index"
 
