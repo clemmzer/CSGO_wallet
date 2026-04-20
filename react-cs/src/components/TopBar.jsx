@@ -1,4 +1,4 @@
-import { AUTO_MS } from "../constants";
+import { AUTO_MS } from "../constants/index.js";
 
 export function TopBar({ theme, toggleTheme, mounted, lastRef, refreshing, onRefresh, anyLoadingHist }) {
   const isDark = theme === "dark";
