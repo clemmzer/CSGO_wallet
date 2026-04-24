@@ -4,8 +4,10 @@ import {
   ResponsiveContainer, ReferenceLine
 } from "recharts";
 import { ChartTooltip } from "./ChartTooltip";
-import { RANGES } from "../constants/index.js";
 import { fmt } from "../utils/index.js";
+
+// ✅ Import de l'enum
+import { RANGE, RANGE_LABELS, RANGE_LIST, RANGE_MS } from "../utils/rangeDuringTimes";
 
 function cleanTimeline(timeline) {
   return timeline
@@ -18,36 +20,40 @@ function getTicks(timeline, range) {
 
   const start = timeline[0].time;
   const end   = timeline[timeline.length - 1].time;
-
   const ticks = [];
+
   const addTicks = (stepMs) => {
     for (let t = start; t <= end; t += stepMs) ticks.push(t);
   };
 
-  if (range === "1h" || range === "24h") {
+  if (range === RANGE.DURING_1_HOUR || range === RANGE.DURING_24_HOURS) {
     addTicks(30 * 60 * 1000);
     return ticks;
   }
-  if (range === "7d") {
+
+  if (range === RANGE.DURING_7_DAYS) {
     addTicks(24 * 60 * 60 * 1000);
     return ticks;
   }
-  if (range === "30d") {
+
+  if (range === RANGE.DURING_30_DAYS) {
     addTicks(2 * 24 * 60 * 60 * 1000);
     return ticks;
   }
-  if (range === "1y") {
+
+  if (range === RANGE.DURING_1_YEAR) {
     const d = new Date(start);
-    d.setHours(0,0,0,0);
+    d.setHours(0, 0, 0, 0);
     while (d.getTime() <= end) {
       ticks.push(d.getTime());
       d.setMonth(d.getMonth() + 1);
     }
     return ticks;
   }
-  if (range === "all") {
+
+  if (range === RANGE.ALL_TIME) {
     const d = new Date(start);
-    d.setHours(0,0,0,0);
+    d.setHours(0, 0, 0, 0);
     while (d.getTime() <= end) {
       ticks.push(d.getTime());
       d.setMonth(d.getMonth() + 2);
@@ -69,8 +75,8 @@ export function PortfolioChart({
 
   timeline = cleanTimeline(timeline);
 
-  const lastVal = portfolio?.marketValue    ?? 0;
-  const chgAbs  = portfolio?.unrealizedPnL  ?? 0;
+  const lastVal = portfolio?.marketValue     ?? 0;
+  const chgAbs  = portfolio?.unrealizedPnL   ?? 0;
   const chgPct  = portfolio?.unrealizedPnLPct ?? 0;
   const isUp    = chgAbs >= 0;
 
@@ -95,30 +101,27 @@ export function PortfolioChart({
       tick={{ fontFamily:"'JetBrains Mono', monospace", fontSize:10, fill:tickCol }}
       tickFormatter={(t) => {
         const d = new Date(t);
-        if (range === "1h" || range === "24h") {
+
+        if (range === RANGE.DURING_1_HOUR || range === RANGE.DURING_24_HOURS) {
           const isStartOfDay = d.getHours() === 0 && d.getMinutes() < 30;
           if (isStartOfDay)
             return d.toLocaleDateString("fr-FR", { day:"2-digit", month:"short" });
           return d.toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" });
         }
-        if (range === "7d")
+
+        if (range === RANGE.DURING_7_DAYS)
           return d.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric" });
-        if (range === "30d")
+
+        if (range === RANGE.DURING_30_DAYS)
           return d.toLocaleDateString("fr-FR", { day:"2-digit", month:"short" });
-        if (range === "all")
+
+        if (range === RANGE.ALL_TIME)
           return d.toLocaleDateString("fr-FR", { month:"short", year:"2-digit" });
+
         return d.toLocaleDateString("fr-FR", { month:"short" });
       }}
     />
   );
-
-  // ✅ Tous les skins pour la légende (pas juste active)
-  // On a besoin de tous pour pouvoir réactiver un skin masqué
-  const allSkinsForLegend = [...active, ...Object.keys(hidden)
-    .filter(id => hidden[id])
-    .map(id => active.find(s => s.id === id))
-    .filter(Boolean)
-  ];
 
   return (
     <div className="card mb12" style={{ marginBottom:12 }}>
@@ -143,11 +146,17 @@ export function PortfolioChart({
               </button>
             ))}
           </div>
+
+          {/* ✅ Boutons de range via RANGE_LIST et RANGE_LABELS */}
           {tab !== "comparaison" && (
             <div className="range-row">
-              {RANGES.map(r => (
-                <button key={r.key} className={`r-btn${range === r.key ? " on" : ""}`} onClick={() => setRange(r.key)}>
-                  {r.label}
+              {RANGE_LIST.map(r => (
+                <button
+                  key={r}
+                  className={`r-btn${range === r ? " on" : ""}`}
+                  onClick={() => setRange(r)}
+                >
+                  {RANGE_LABELS[r]}
                 </button>
               ))}
             </div>
@@ -155,7 +164,7 @@ export function PortfolioChart({
         </div>
       </div>
 
-      {/* LEGEND SKINS — ✅ passe par tous les skins du portfolio */}
+      {/* LEGEND SKINS */}
       {tab === "skins" && (
         <div className="leg-row">
           {active.map(s => (
@@ -264,7 +273,6 @@ export function PortfolioChart({
           </ResponsiveContainer>
 
         ) : (
-          /* ✅ SKINS — active est déjà filtré, pas besoin de !hidden[s.id] */
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={timeline} margin={{ top:4, right:16, bottom:0, left:0 }}>
               <CartesianGrid strokeDasharray="2 2" stroke={gridCol}/>
@@ -289,7 +297,6 @@ export function PortfolioChart({
             </LineChart>
           </ResponsiveContainer>
         )}
-
       </div>
     </div>
   );
