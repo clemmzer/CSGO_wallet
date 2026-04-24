@@ -1,10 +1,13 @@
+import { useTranslation } from "react-i18next";
 import { AUTO_MS } from "../constants/index.js";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
 export function TopBar({
   theme, toggleTheme, mounted,
   lastRef, refreshing, onRefresh, anyLoadingHist,
   user, authenticated, onLogin, onLogout,
 }) {
+  const { t } = useTranslation();
   const isDark = theme === "dark";
 
   return (
@@ -28,28 +31,33 @@ export function TopBar({
         {anyLoadingHist && (
           <div className="hist-loading">
             <div className="spin"/>
-            Chargement historique Steam...
+            {t("common.loadingHistory")}
           </div>
         )}
         {lastRef && (
           <span className="muted" style={{ fontSize:11 }}>
-            màj {lastRef.toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" })}
+            {t("common.updatedAt")} {lastRef.toLocaleTimeString(
+              t("common.locale"),
+              { hour:"2-digit", minute:"2-digit" }
+            )}
           </span>
         )}
         <div className="badge-live">
           <div className="dot-live"/>
-          LIVE · auto {AUTO_MS / 60000}min
+          {t("common.live", { min: AUTO_MS / 60000 })}
         </div>
         <button className="btn-top" onClick={onRefresh} disabled={refreshing}>
-          {refreshing ? "..." : "↻ Actualiser"}
+          {refreshing ? "..." : `↻ ${t("common.refresh")}`}
         </button>
-        <button className="btn-theme" onClick={toggleTheme} title="Changer le thème">
+        <button className="btn-theme" onClick={toggleTheme} title={t("common.changeTheme")}>
           {mounted ? (isDark ? "☀️" : "🌙") : null}
         </button>
 
+        {/* ✅ Switcher de langue */}
+        <LanguageSwitcher />
+
         <div className="topbar-sep"/>
 
-        {/* Auth Steam */}
         {authenticated && user ? (
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
             {user.avatar && (
@@ -63,7 +71,7 @@ export function TopBar({
               {user.displayName}
             </span>
             <button className="btn-top" onClick={onLogout} style={{ color:"var(--red)", borderColor:"var(--red-bg)" }}>
-              Déconnexion
+              {t("common.logout")}
             </button>
           </div>
         ) : (
@@ -71,7 +79,7 @@ export function TopBar({
             <svg width="14" height="14" viewBox="0 0 32 32" fill="currentColor">
               <path d="M16 0C7.163 0 0 7.163 0 16s7.163 16 16 16 16-7.163 16-16S24.837 0 16 0zm0 6a10 10 0 110 20A10 10 0 0116 6z"/>
             </svg>
-            Connexion Steam
+            {t("common.loginSteam")}
           </button>
         )}
       </div>
