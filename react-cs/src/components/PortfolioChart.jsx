@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   AreaChart, Area, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -5,9 +6,7 @@ import {
 } from "recharts";
 import { ChartTooltip } from "./ChartTooltip";
 import { fmt } from "../utils/index.js";
-
-// ✅ Import de l'enum
-import { RANGE, RANGE_LABELS, RANGE_LIST, RANGE_MS } from "../utils/rangeDuringTimes";
+import { RANGE, RANGE_LABELS, RANGE_LIST } from "../utils/rangeDuringTimes";
 
 function cleanTimeline(timeline) {
   return timeline
@@ -30,17 +29,14 @@ function getTicks(timeline, range) {
     addTicks(30 * 60 * 1000);
     return ticks;
   }
-
   if (range === RANGE.DURING_7_DAYS) {
     addTicks(24 * 60 * 60 * 1000);
     return ticks;
   }
-
   if (range === RANGE.DURING_30_DAYS) {
     addTicks(2 * 24 * 60 * 60 * 1000);
     return ticks;
   }
-
   if (range === RANGE.DURING_1_YEAR) {
     const d = new Date(start);
     d.setHours(0, 0, 0, 0);
@@ -50,7 +46,6 @@ function getTicks(timeline, range) {
     }
     return ticks;
   }
-
   if (range === RANGE.ALL_TIME) {
     const d = new Date(start);
     d.setHours(0, 0, 0, 0);
@@ -72,11 +67,12 @@ export function PortfolioChart({
   accentCol, redCol, gridCol, tickCol, isDark,
   theme,
 }) {
+  const { t, i18n } = useTranslation();
 
   timeline = cleanTimeline(timeline);
 
-  const lastVal = portfolio?.marketValue     ?? 0;
-  const chgAbs  = portfolio?.unrealizedPnL   ?? 0;
+  const lastVal = portfolio?.marketValue      ?? 0;
+  const chgAbs  = portfolio?.unrealizedPnL    ?? 0;
   const chgPct  = portfolio?.unrealizedPnLPct ?? 0;
   const isUp    = chgAbs >= 0;
 
@@ -86,6 +82,9 @@ export function PortfolioChart({
   }));
 
   const Tip = (props) => <ChartTooltip {...props} theme={theme} />;
+
+  // ✅ Locale dynamique selon la langue i18n
+  const locale = i18n.language.startsWith("fr") ? "fr-FR" : "en-US";
 
   const xAxis = (
     <XAxis
@@ -105,23 +104,28 @@ export function PortfolioChart({
         if (range === RANGE.DURING_1_HOUR || range === RANGE.DURING_24_HOURS) {
           const isStartOfDay = d.getHours() === 0 && d.getMinutes() < 30;
           if (isStartOfDay)
-            return d.toLocaleDateString("fr-FR", { day:"2-digit", month:"short" });
-          return d.toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" });
+            return d.toLocaleDateString(locale, { day:"2-digit", month:"short" });
+          return d.toLocaleTimeString(locale, { hour:"2-digit", minute:"2-digit" });
         }
-
         if (range === RANGE.DURING_7_DAYS)
-          return d.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric" });
-
+          return d.toLocaleDateString(locale, { weekday:"short", day:"numeric" });
         if (range === RANGE.DURING_30_DAYS)
-          return d.toLocaleDateString("fr-FR", { day:"2-digit", month:"short" });
-
+          return d.toLocaleDateString(locale, { day:"2-digit", month:"short" });
         if (range === RANGE.ALL_TIME)
-          return d.toLocaleDateString("fr-FR", { month:"short", year:"2-digit" });
+          return d.toLocaleDateString(locale, { month:"short", year:"2-digit" });
 
-        return d.toLocaleDateString("fr-FR", { month:"short" });
+        return d.toLocaleDateString(locale, { month:"short" });
       }}
     />
   );
+
+  // ✅ Onglets avec traductions
+  const tabs = [
+    { key: "valeur",      label: t("chart.tabs.value") },
+    { key: "profit",      label: t("chart.tabs.profit") },
+    { key: "skins",       label: t("chart.tabs.skins") },
+    { key: "comparaison", label: t("chart.tabs.comparison") },
+  ];
 
   return (
     <div className="card mb12" style={{ marginBottom:12 }}>
@@ -129,7 +133,9 @@ export function PortfolioChart({
       {/* HEADER */}
       <div className="chart-top">
         <div>
-          <div className="card-title" style={{ marginBottom:8 }}>Évolution du portefeuille</div>
+          <div className="card-title" style={{ marginBottom:8 }}>
+            {t("chart.portfolioEvolution")}
+          </div>
           <div style={{ display:"flex", alignItems:"baseline", gap:10 }}>
             <span className="price-big">{fmt(lastVal)} €</span>
             <span className={`price-chip ${isUp ? "chip-up" : "chip-dn"}`}>
@@ -139,15 +145,20 @@ export function PortfolioChart({
         </div>
 
         <div className="chart-controls">
+          {/* ✅ Onglets traduits */}
           <div className="tab-row">
-            {["valeur","profit","skins","comparaison"].map(t => (
-              <button key={t} className={`t-btn${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+            {tabs.map(({ key, label }) => (
+              <button
+                key={key}
+                className={`t-btn${tab === key ? " on" : ""}`}
+                onClick={() => setTab(key)}
+              >
+                {label}
               </button>
             ))}
           </div>
 
-          {/* ✅ Boutons de range via RANGE_LIST et RANGE_LABELS */}
+          {/* ✅ Boutons range via enum */}
           {tab !== "comparaison" && (
             <div className="range-row">
               {RANGE_LIST.map(r => (
@@ -188,13 +199,26 @@ export function PortfolioChart({
             <ResponsiveContainer width="100%" height={Math.max(200, compData.length * 44 + 30)}>
               <BarChart data={compData} layout="vertical" margin={{ top:4, right:16, bottom:0, left:0 }}>
                 <CartesianGrid strokeDasharray="2 2" stroke={gridCol} horizontal={false}/>
-                <XAxis type="number" tick={{ fontFamily:"'JetBrains Mono'", fontSize:10, fill:tickCol }} tickLine={false} axisLine={false} tickFormatter={v => (v ?? 0).toFixed(0) + "€"}/>
-                <YAxis type="category" dataKey="name" width={100} tick={{ fontFamily:"'Inter'", fontSize:11, fill:tickCol }} tickLine={false} axisLine={false}/>
+                <XAxis
+                  type="number"
+                  tick={{ fontFamily:"'JetBrains Mono'", fontSize:10, fill:tickCol }}
+                  tickLine={false} axisLine={false}
+                  tickFormatter={v => (v ?? 0).toFixed(0) + "€"}
+                />
+                <YAxis
+                  type="category" dataKey="name" width={100}
+                  tick={{ fontFamily:"'Inter'", fontSize:11, fill:tickCol }}
+                  tickLine={false} axisLine={false}
+                />
                 <Tooltip content={<Tip/>} cursor={{ fill:"rgba(128,128,128,0.05)" }}/>
-                <Bar dataKey="marche" name="Marché" fill={accentCol} barSize={9} radius={[0,3,3,0]} fillOpacity={0.85}/>
+                <Bar dataKey="marche" name={t("kpi.marketValue")} fill={accentCol} barSize={9} radius={[0,3,3,0]} fillOpacity={0.85}/>
               </BarChart>
             </ResponsiveContainer>
-          ) : <div className="chart-empty"><p>Aucun skin visible.</p></div>
+          ) : (
+            <div className="chart-empty">
+              <p>{t("chart.noSkinVisible")}</p>
+            </div>
+          )
 
         ) : tab === "valeur" ? (
           <ResponsiveContainer width="100%" height={240}>
@@ -225,9 +249,9 @@ export function PortfolioChart({
                 strokeDasharray="5 4"
                 opacity={0.7}
                 label={{
-                  value: `Investi ${(portfolio?.totalBuy ?? 0).toFixed(2)}€`,
+                  value:    `${t("chart.invested")} ${(portfolio?.totalBuy ?? 0).toFixed(2)}€`,
                   position: "insideTopRight",
-                  fill: redCol,
+                  fill:     redCol,
                   fontSize: 10
                 }}
               />
@@ -297,6 +321,7 @@ export function PortfolioChart({
             </LineChart>
           </ResponsiveContainer>
         )}
+
       </div>
     </div>
   );

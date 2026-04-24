@@ -1,0 +1,75 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "refresh": "Refresh",
+    "login": "Login",
+    "loginSteam": "Steam Login",
+    "logout": "Logout",
+    "live": "LIVE · auto {{min}}min",
+    "loadingHistory": "Loading Steam history...",
+    "updatedAt": "upd.",
+    "changeTheme": "Toggle theme",
+    "locale": "en-US"
+  },
+  "sidebar": {
+    "addSkin": "Add a skin",
+    "mySkins": "My skins",
+    "selectWeapon": "Select a weapon...",
+    "steps": {
+      "weapon": "Weapon",
+      "skin": "Skin",
+      "wear": "Wear",
+      "price": "Price"
+    },
+    "search": "Search for a skin...",
+    "noResult": "No results",
+    "wear": "Wear",
+    "yourPrice": "Your purchase",
+    "steam": "Steam",
+    "addToPortfolio": "Add to portfolio",
+    "enterPrice": "Enter a purchase price",
+    "buyVsMarket": "Purchase vs market",
+    "changeWeapon": "change"
+  },
+  "kpi": {
+    "invested": "Invested",
+    "marketValue": "Market Value",
+    "profitLoss": "Profit / Loss",
+    "dataPoints": "Data Points",
+    "skin": "skin",
+    "skins": "skins",
+    "steamLowest": "Steam lowest listing",
+    "sinceAchat": "since purchase",
+    "basedOnLowest": "Based on current lowest listing",
+    "timelineSteam": "Steam timeline (backend)"
+  },
+  "chart": {
+    "portfolioEvolution": "Portfolio Evolution",
+    "tabs": {
+      "value": "Value",
+      "profit": "Profit",
+      "skins": "Skins",
+      "comparison": "Comparison"
+    },
+    "invested": "Invested",
+    "noSkinVisible": "No visible skin.",
+    "disclaimer": "Steam data does not represent a financial market. Prices may be volatile and do not guarantee a resale value."
+  },
+  "recap": {
+    "title": "Summary",
+    "profitBySkin": "Profit by skin",
+    "invested": "Invested",
+    "marketValue": "Market Value",
+    "totalProfit": "Total Profit",
+    "performance": "Performance",
+    "topPerformances": "Top Performances",
+    "noSkin": "No skin"
+  },
+  "empty": {
+    "title": "No skins",
+    "description": "Add your first skins. The complete Steam price history will be loaded automatically."
+  },
+  "errors": {
+    "loadSkins": "Unable to load the skins database"
+  }
+}

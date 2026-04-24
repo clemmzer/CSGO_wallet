@@ -1,0 +1,75 @@
+{
+  "common": {
+    "loading": "Chargement…",
+    "refresh": "Actualiser",
+    "login": "Connexion",
+    "loginSteam": "Connexion Steam",
+    "logout": "Déconnexion",
+    "live": "LIVE · auto {{min}}min",
+    "loadingHistory": "Chargement historique Steam...",
+    "updatedAt": "màj",
+    "changeTheme": "Changer le thème",
+    "locale": "fr-FR"
+  },
+  "sidebar": {
+    "addSkin": "Ajouter un skin",
+    "mySkins": "Mes skins",
+    "selectWeapon": "Sélectionner une arme...",
+    "steps": {
+      "weapon": "Arme",
+      "skin": "Skin",
+      "wear": "Usure",
+      "price": "Prix"
+    },
+    "search": "Rechercher un skin...",
+    "noResult": "Aucun résultat",
+    "wear": "Usure",
+    "yourPrice": "Ton achat",
+    "steam": "Steam",
+    "addToPortfolio": "Ajouter au portefeuille",
+    "enterPrice": "Saisissez un prix d'achat",
+    "buyVsMarket": "Achat vs marché",
+    "changeWeapon": "changer"
+  },
+  "kpi": {
+    "invested": "Investi",
+    "marketValue": "Valeur Marché",
+    "profitLoss": "Profit / Perte",
+    "dataPoints": "Points de données",
+    "skin": "skin",
+    "skins": "skins",
+    "steamLowest": "Steam lowest listing",
+    "sinceAchat": "depuis l'achat",
+    "basedOnLowest": "Basé sur le lowest listing actuel",
+    "timelineSteam": "timeline Steam (backend)"
+  },
+  "chart": {
+    "portfolioEvolution": "Évolution du portefeuille",
+    "tabs": {
+      "value": "Valeur",
+      "profit": "Profit",
+      "skins": "Skins",
+      "comparison": "Comparaison"
+    },
+    "invested": "Investi",
+    "noSkinVisible": "Aucun skin visible.",
+    "disclaimer": "Les données Steam ne représentent pas un marché financier. Les prix peuvent être volatils et ne garantissent pas une valeur de revente."
+  },
+  "recap": {
+    "title": "Récapitulatif",
+    "profitBySkin": "Profit par skin",
+    "invested": "Investi",
+    "marketValue": "Valeur Marché",
+    "totalProfit": "Profit Total",
+    "performance": "Performance",
+    "topPerformances": "Top Performances",
+    "noSkin": "Aucun skin"
+  },
+  "empty": {
+    "title": "Aucun skin",
+    "description": "Ajoutez vos premiers skins. L'historique complet Steam sera chargé automatiquement."
+  },
+  "errors": {
+    "loadSkins": "Impossible de charger la base des skins"
+  }
+}
